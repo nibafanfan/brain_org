@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.conda/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Single-cell / large data artifacts
+data/raw/
+data/processed/
+data/external/
+*.h5ad
+*.h5
+*.h5mu
+*.loom
+*.mtx
+*.mtx.gz
+*.tsv.gz
+*.fastq
+*.fastq.gz
+*.bam
+*.bai
+
+# Model checkpoints (top-level only — src/brain_organoid/models is source code)
+/models/
+*.pt
+*.pth
+*.ckpt
+checkpoints/
+
+# Results / figures (track selectively)
+results/
+figures/
+
+# Logs
+*.log
+logs/
+wandb/
+mlruns/
+lightning_logs/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
