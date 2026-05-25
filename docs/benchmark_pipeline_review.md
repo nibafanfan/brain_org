@@ -533,3 +533,12 @@ biological/irremovable even for label-aware integration. The bio-conservation ga
 (cLISI/NMI/ARI) are **partly circular** (scANVI is trained on the same `CellClass_cal` labels
 those metrics score against), so they are not independent evidence. **Decision: freeze scVI as
 latent/denoiser; do not claim integration gain vs PCA under the current scIB panel.**
+
+**DECISION LOCKED (reviewer-confirmed, 2026-05-25).** Keep NO-GO; the pre-registered
+**conjunctive** gate (ΔiLISI **AND** ΔkBET) was **not** relaxed to OR post hoc (doing so would
+weaken credibility). **iLISI is the primary batch-mixing metric in this decision gate; the kBET
+improvement is acknowledged but insufficient without iLISI movement.** scVI is retained as the
+latent/denoiser backbone; all results are framed on **repertoire / correspondence + OOD-aware
+transfer**, not integration-gain claims. No further integration experiments planned.
+Next (compute idle until specified): full **#5** (config + shared-module de-dup),
+**held-out-*variable*-gene Q2**, **calibration reliability/ECE**.
