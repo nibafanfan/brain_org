@@ -12,28 +12,28 @@ the fix is "fewer surgery epochs", "use kNN", or both.
 """
 import os
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-import time
+import sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import numpy as np, pandas as pd, anndata as ad, scvi
 from lightning.pytorch.callbacks import Callback
 from sklearn.neighbors import KNeighborsClassifier
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, sym2ens as _sym2ens, model_genes, reindex_braun
 
-ROOT = Path('/Users/eg/brain_organoid')
-MDIR = ROOT / 'data/braun_scanvi_full'
+cfg = load_config()
+ROOT = cfg.root
+MDIR = cfg.braun_scanvi_model
 ACC = 'mps'
 QUERY_N = 200_000
 SURGERY_EPOCHS = [40, 10, 0]     # 40 reproduces the collapse; 10/0 are candidate fixes
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-vn = list(torch.load(MDIR/'model.pt', map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(ROOT/'data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+vn = model_genes(MDIR)
+sym2ens = _sym2ens(cfg.canonical)
 
 # ---- reference (reindex Braun to model genes) + load model
-braun = ad.read_h5ad(ROOT/'data/raw/braun_2023/braun_all.h5ad')[:, vn].copy()
-braun.layers['counts'] = braun.X.copy()
+braun = reindex_braun(cfg.braun, vn)
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 braun.obs['donor_id'] = braun.obs['donor_id'].astype(str)
 scanvi = scvi.model.SCANVI.load(str(MDIR), adata=braun)

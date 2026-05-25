@@ -5,27 +5,27 @@ split Braun ref into train/test, compute test->train kNN-distance (cells we KNOW
 in-distribution), and set the OOD threshold at p95/p99 of that null. Then query
 cells beyond it are OOD. Also a CellClass-stratified per-class null.
 """
-import sys, time
+import argparse, sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import numpy as np, pandas as pd, anndata as ad, scvi
 from sklearn.neighbors import NearestNeighbors
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _provenance import write_sidecar
+from atlas_common import load_config, model_genes, reindex_braun, write_sidecar
 
-ROOT = '/Users/eg/brain_organoid'
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
 N_TRAIN, N_TEST, N_QUERY = 300_000, 50_000, 500_000
 K = 30
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 rng = np.random.default_rng(0)
 
-vn = list(torch.load(f'{ROOT}/data/braun_scanvi_full/model.pt',
-                     map_location='cpu', weights_only=False)['var_names'])
-braun = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')[:, vn].copy()
-braun.layers['counts'] = braun.X.copy()
+vn = model_genes(cfg.braun_scanvi_model)
+braun = reindex_braun(cfg.braun, vn)
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 braun.obs['donor_id'] = braun.obs['donor_id'].astype(str)
-scanvi = scvi.model.SCANVI.load(f'{ROOT}/data/braun_scanvi_full', adata=braun)
+scanvi = scvi.model.SCANVI.load(str(cfg.braun_scanvi_model), adata=braun)
 
 sel = rng.choice(braun.n_obs, N_TRAIN + N_TEST, replace=False)
 tr_idx, te_idx = sel[:N_TRAIN], sel[N_TRAIN:]

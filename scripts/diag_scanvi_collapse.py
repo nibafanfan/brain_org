@@ -10,22 +10,23 @@ loads data/braun_scanvi_full, predicts on a reference subsample, crosstabs vs tr
 """
 import os
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-import time
+import sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import numpy as np, pandas as pd, anndata as ad, scvi
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, model_genes, reindex_braun
 
-ROOT = Path('/Users/eg/brain_organoid')
-MDIR = ROOT / 'data/braun_scanvi_full'
+cfg = load_config()
+ROOT = cfg.root
+MDIR = cfg.braun_scanvi_model
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-vn = list(torch.load(MDIR/'model.pt', map_location='cpu', weights_only=False)['var_names'])
+vn = model_genes(MDIR)
 log(f"model expects {len(vn)} genes")
 
-braun = ad.read_h5ad(ROOT/'data/raw/braun_2023/braun_all.h5ad')
-log(f"Braun loaded: {braun.shape}")
-braun = braun[:, vn].copy()                      # reindex to model genes (order matters)
-braun.layers['counts'] = braun.X.copy()          # X is raw counts; model uses layer='counts'
+braun = reindex_braun(cfg.braun, vn)             # reindex to model genes + counts layer
+log(f"Braun reindexed: {braun.shape}")
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 braun.obs['donor_id'] = braun.obs['donor_id'].astype(str)
 log(f"reindexed reference: {braun.shape}")

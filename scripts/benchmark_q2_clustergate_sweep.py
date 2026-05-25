@@ -5,14 +5,16 @@
 microglia surfaces (centroid->Immune), endothelium doesn't, "oligo"-marker cluster
 maps to Neural crest. Long-format TSV + compact summary.
 """
-import sys, time
+import argparse, sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scanpy as sc, torch
+import numpy as np, pandas as pd, anndata as ad, scanpy as sc
 import scipy.sparse as sp
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _provenance import write_sidecar
+from atlas_common import load_config, sym2ens, model_genes, ens_to_col, cp10k_log, write_sidecar
 
-ROOT = '/Users/eg/brain_organoid'
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
 N_SUB = 400_000
 RES = [1.0, 1.5, 2.0]
 THR = [0.25, 0.30, 0.35]
@@ -27,28 +29,20 @@ PANELS = {
     'oligo':       ['MBP', 'PLP1', 'MOG'],
 }
 
-vn = list(torch.load(f'{ROOT}/data/braun_scanvi_full/model.pt',
-                     map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(f'{ROOT}/data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+vn = model_genes(cfg.braun_scanvi_model)
+s2e = sym2ens(cfg.canonical)
 
 # Braun pseudobulk (2006 genes) for centroid-correlation
-def cp10k_log(df): return np.log1p(df.div(df.sum(1), axis=0) * 1e4)
-braun = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')[:, vn]
+braun = ad.read_h5ad(cfg.braun)[:, vn]
 bX = braun.X.toarray() if sp.issparse(braun.X) else np.asarray(braun.X)
 b_pb = cp10k_log(pd.DataFrame(bX, columns=vn).assign(__c=braun.obs['CellClass'].astype(str).values)
                  .groupby('__c').mean())
 log(f"Braun pseudobulk {b_pb.shape}")
 
-cal = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_calibrated.h5ad')
-atlas = ad.read_h5ad(f'{ROOT}/data/atlas_v5_full.h5ad', backed='r')
-atlas_ens = np.array([sym2ens.get(s, '') for s in atlas.var_names])
-ens_to_col = {}
-for c, e in enumerate(atlas_ens):
-    if e and e not in ens_to_col:
-        ens_to_col[e] = c
-cols2006 = [ens_to_col[g] for g in vn]
+cal = ad.read_h5ad(cfg.calibrated)
+atlas = ad.read_h5ad(cfg.atlas_full, backed='r')
+e2c = ens_to_col(atlas.var_names, s2e)
+cols2006 = [e2c[g] for g in vn]
 
 def centroid_corr(pb_vec):
     cors = {bc: np.corrcoef(pb_vec, b_pb.loc[bc])[0, 1] for bc in b_pb.index}
