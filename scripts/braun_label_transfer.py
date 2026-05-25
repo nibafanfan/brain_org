@@ -20,6 +20,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import argparse, time
 from pathlib import Path
+from brain_organoid.config import add_common_overrides, load_config, merge_cli_overrides, resolve_path, require_file, stamp_provenance
 import numpy as np
 import pandas as pd
 import anndata as ad
@@ -28,10 +29,6 @@ import scvi
 from lightning.pytorch.callbacks import Callback
 from sklearn.neighbors import KNeighborsClassifier
 
-ROOT = Path('/Users/eg/brain_organoid')
-BRAUN = ROOT / 'data/raw/braun_2023/braun_all.h5ad'
-ATLAS = ROOT / 'data/atlas_v5_full.h5ad'
-CANON = ROOT / 'data/reference/hnoca_var_canonical.tsv'
 
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
@@ -46,7 +43,7 @@ class EpochLogger(Callback):
               + " ".join(parts), flush=True)
 
 
-ap = argparse.ArgumentParser()
+ap = add_common_overrides(argparse.ArgumentParser())
 ap.add_argument('--pilot', action='store_true')
 ap.add_argument('--ref-n', type=int, default=100_000)
 ap.add_argument('--query-n', type=int, default=200_000)
@@ -62,6 +59,11 @@ ap.add_argument('--query-batch-key', default='tech_sample')
 ap.add_argument('--label-key', default='CellClass')
 ap.add_argument('--region-key', default='Region')
 args = ap.parse_args()
+cfg = merge_cli_overrides(load_config(args.config), args)
+out_tag = args.out_tag_override or args.out_tag
+BRAUN = require_file(resolve_path(cfg, cfg['paths']['braun_reference']), 'Braun reference')
+ATLAS = require_file(resolve_path(cfg, args.in_override or cfg['paths']['atlas_full']), 'Atlas input')
+CANON = require_file(resolve_path(cfg, cfg['paths']['canonical_bridge_tsv']), 'Canonical bridge TSV')
 
 UNLAB = 'Unknown'
 train_kw = dict(accelerator=args.accelerator, batch_size=args.batch_size,
@@ -141,7 +143,7 @@ log(f"training reference scANVI on {args.label_key} ({args.scanvi_epochs} ep)…
 scanvi = scvi.model.SCANVI.from_scvi_model(ref, unlabeled_category=UNLAB,
                                            labels_key=args.label_key)
 scanvi.train(max_epochs=args.scanvi_epochs, **train_kw)
-mdir = ROOT / f'data/braun_scanvi_{args.out_tag}'
+mdir = resolve_path(cfg, cfg['outputs']['models_dir']) / f'braun_scanvi_{out_tag}'
 scanvi.save(str(mdir), overwrite=True)
 log(f"saved reference scANVI -> {mdir}")
 
@@ -267,4 +269,5 @@ out = ad.AnnData(X=query.obsm['X_scanvi'], obs=query.obs[keep_obs].copy())
 op = ROOT / f'data/braun_transfer_{args.out_tag}.h5ad'
 out.write_h5ad(op)
 log(f"saved -> {op}")
+stamp_provenance((mdir / 'transfer.provenance.json'), cfg, {'braun': str(BRAUN), 'atlas': str(ATLAS), 'canon': str(CANON), 'model_dir': str(mdir), 'out_tag': out_tag})
 log("DONE")

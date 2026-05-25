@@ -131,3 +131,21 @@ Please flag methodological risks, statistical concerns, simpler/standard
 alternatives, and concrete next steps. Entry points:
 `docs/v5_outcomes_and_validation.md` · `docs/rebuild_plan_2026-05-23.md` →
 `scripts/rebuild_atlas.py` → `scripts/preprocess_atlas.py` → `scripts/train_scvi.py`.
+
+## Reproducibility via shared config
+
+Use `configs/atlas_v5.yaml` and optional CLI overrides (`--config`, `--root`, `--in`, `--out`, `--out-tag`).
+
+### Reproduce figures
+
+```bash
+python scripts/eval_integration.py --config configs/atlas_v5.yaml --out-tag v5_full
+```
+
+### Reproduce benchmarks
+
+```bash
+python scripts/preprocess_atlas.py --config configs/atlas_v5.yaml --out-tag v5_full
+python scripts/train_scvi.py --config configs/atlas_v5.yaml --out-tag v5_full
+python scripts/braun_label_transfer.py --config configs/atlas_v5.yaml --out-tag v5_full
+```

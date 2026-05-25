@@ -12,13 +12,20 @@ import time
 import numpy as np
 import anndata as ad
 import scanpy as sc
+from brain_organoid.config import add_common_overrides, load_config, merge_cli_overrides, resolve_path, require_file, stamp_provenance
 
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-LAT = 'data/scvi_latent_v5_full.h5ad'
-N_SUB = 200_000
-K = 30
+ap = add_common_overrides(__import__('argparse').ArgumentParser())
+ap.add_argument('--subsample', type=int, default=None)
+ap.add_argument('--k', type=int, default=None)
+args = ap.parse_args()
+cfg = merge_cli_overrides(load_config(args.config), args)
+lat_rel = args.in_override or cfg['paths']['scvi_latent_full']
+LAT = require_file(resolve_path(cfg, lat_rel), 'scvi latent input')
+N_SUB = args.subsample or cfg['defaults']['integration_eval']['subsample']
+K = args.k or cfg['defaults']['integration_eval']['knn_k']
 
 log(f"reading {LAT}")
 a = ad.read_h5ad(LAT)
@@ -67,8 +74,18 @@ try:
                title=f'by dataset (113) — want MIXED  [same-nbr={ds_same:.2f}]', size=3)
     sc.pl.umap(a, color='organoid_type', ax=ax[1], show=False,
                title=f'by organoid_type (33) — want SEPARATED  [same-nbr={ot_same:.2f}]', size=3)
-    fig.tight_layout(); fig.savefig('data/scvi_umap_eval_v5.png', dpi=110)
-    log("wrote data/scvi_umap_eval_v5.png")
+    fig.tight_layout()
+    out_png = resolve_path(cfg, cfg['outputs']['figures_dir']) / (
+        f"scvi_umap_eval_{cfg.get('out_tag', 'v5')}.png"
+    )
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=110)
+    log(f"wrote {out_png}")
+    stamp_provenance(
+        out_png.with_suffix('.provenance.json'),
+        cfg,
+        {'input': str(LAT), 'figure': str(out_png), 'k': K, 'subsample': N_SUB},
+    )
 except Exception as e:
     log(f"(plot skipped: {e})")
 log("DONE")
