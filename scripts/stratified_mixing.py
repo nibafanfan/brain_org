@@ -10,21 +10,27 @@ type baseline (sum p_i^2) = well mixed across labs; >> baseline = residual batch
   same-frac ~ baseline  -> e.g. radial glia from Lab A mix with radial glia Lab B
   same-frac >> baseline -> same cell type still splits by dataset (batch effect)
 """
-import time
+import argparse, sys, time
+from pathlib import Path
 import numpy as np, pandas as pd, anndata as ad
-from sklearn.neighbors import NearestNeighbors
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, same_frac, baseline
 
-ROOT = '/Users/eg/brain_organoid'
-N_SUB = 300_000
+ap = argparse.ArgumentParser()
+ap.add_argument('--root', default=None)
+args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
+N_SUB = cfg.defaults['n_sub']
 CAP = 40_000          # max cells per class for the kNN (speed)
 MIN_CELLS = 1500      # skip classes too rare to assess
-K = 30
+K = cfg.defaults['knn_k']
 BATCH = 'dataset_slug'
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-lat = ad.read_h5ad(f'{ROOT}/data/scvi_latent_v5_full.h5ad')
-tr = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_knn.h5ad', backed='r')
+lat = ad.read_h5ad(cfg.latent)
+tr = ad.read_h5ad(ROOT / 'data/braun_transfer_full_knn.h5ad', backed='r')
 log(f"latent {lat.shape}")
 # join CellClass_pred onto latent by barcode
 cc = tr.obs['CellClass_pred'].reindex(lat.obs_names)
@@ -40,17 +46,6 @@ X = np.asarray(lat.X)
 cls = lat.obs['CellClass'].to_numpy()
 ds = lat.obs[BATCH].astype('category')
 log(f"subsample {X.shape}; {ds.cat.categories.size} datasets total")
-
-def same_frac(Xc, codes, k=K):
-    k = min(k, len(codes) - 1)
-    nn = NearestNeighbors(n_neighbors=k + 1).fit(Xc)
-    _, idx = nn.kneighbors(Xc)
-    idx = idx[:, 1:]                       # drop self
-    return float((codes[idx] == codes[:, None]).mean())
-
-def baseline(codes):
-    p = pd.Series(codes).value_counts(normalize=True).to_numpy()
-    return float((p ** 2).sum())
 
 rows = []
 for c in pd.Series(cls).value_counts().index:
@@ -77,6 +72,6 @@ log("")
 log(f"GLOBAL (not stratified): same={g_sf:.3f} base={g_bl:.3f} ratio={g_sf/g_bl:.1f}x")
 log("=== stratified summary (lower ratio = better cross-dataset mixing within type) ===")
 log("\n" + df.round(3).to_string(index=False))
-df.to_csv(f'{ROOT}/data/stratified_mixing.tsv', sep='\t', index=False)
+df.to_csv(ROOT / 'data/stratified_mixing.tsv', sep='\t', index=False)
 log(f"saved -> data/stratified_mixing.tsv")
 log("DONE")

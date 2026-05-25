@@ -1,0 +1,20 @@
+# Central config for the benchmark pipeline (review item #5).
+# Paths are relative to `root` (override root via --root or ATLAS_ROOT env).
+root: /Users/eg/brain_organoid
+
+paths:
+  latent:             data/scvi_latent_v5_full.h5ad          # scVI latent (X = 30-d)
+  calibrated:         data/braun_transfer_full_calibrated.h5ad  # transfer labels + OOD
+  atlas_full:         data/atlas_v5_full.h5ad                 # full-gene counts (symbols)
+  preprocessed:       data/processed/atlas_v5_preprocessed.h5ad  # 3000-HVG lognorm + counts
+  braun:              data/raw/braun_2023/braun_all.h5ad      # primary reference (Ensembl)
+  canonical:          data/reference/hnoca_var_canonical.tsv  # hgnc_symbol <-> ensembl bridge
+  scvi_model:         data/scvi_model_v5_full
+  braun_scanvi_model: data/braun_scanvi_full
+  snapseed_yaml:      docs/snapseed_markers_hnocadownload.yaml
+
+defaults:
+  n_sub: 300000        # subsample size for tractable kNN/UMAP
+  knn_k: 30
+  chunk: 250000        # row-chunk for memory-safe atlas reads
+  seed: 0
