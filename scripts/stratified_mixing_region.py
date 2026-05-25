@@ -6,22 +6,28 @@ If e.g. (Neuron, Telencephalon) cells from different datasets STILL don't mix
 (ratio stays ~10-15x), the residual is genuine batch effect. If the ratio drops
 a lot vs Neuron-overall (15.8x), most of that was regional/subtype heterogeneity.
 """
-import time
+import argparse, sys, time
+from pathlib import Path
 import numpy as np, pandas as pd, anndata as ad
-from sklearn.neighbors import NearestNeighbors
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, same_frac, baseline
 
-ROOT = '/Users/eg/brain_organoid'
-N_SUB = 300_000
+ap = argparse.ArgumentParser()
+ap.add_argument('--root', default=None)
+args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
+N_SUB = cfg.defaults['n_sub']
 CAP = 40_000
 MIN_CELLS = 1500
 MIN_DATASETS = 10        # mixing only assessable if the group spans many datasets
-K = 30
+K = cfg.defaults['knn_k']
 BATCH = 'dataset_slug'
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-lat = ad.read_h5ad(f'{ROOT}/data/scvi_latent_v5_full.h5ad')
-tr = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_knn.h5ad', backed='r')
+lat = ad.read_h5ad(cfg.latent)
+tr = ad.read_h5ad(ROOT / 'data/braun_transfer_full_knn.h5ad', backed='r')
 trobs = tr.obs[['CellClass_pred', 'Region_pred']].reindex(lat.obs_names)
 lat.obs['CellClass'] = trobs['CellClass_pred'].values
 lat.obs['Region'] = trobs['Region_pred'].values
@@ -37,16 +43,6 @@ dscodes = ds.cat.codes.to_numpy()
 cc = lat.obs['CellClass'].to_numpy()
 rg = lat.obs['Region'].to_numpy()
 log(f"subsample {X.shape}")
-
-def same_frac(Xc, codes, k=K):
-    k = min(k, len(codes) - 1)
-    nn = NearestNeighbors(n_neighbors=k + 1).fit(Xc)
-    _, idx = nn.kneighbors(Xc)
-    return float((codes[idx[:, 1:]] == codes[:, None]).mean())
-
-def baseline(codes):
-    p = pd.Series(codes).value_counts(normalize=True).to_numpy()
-    return float((p ** 2).sum())
 
 # CellClass-only ratios (reference, from prior run)
 cc_only = {'Radial glia': 15.5, 'Neuron': 15.8, 'Neuroblast': 12.9,
@@ -77,6 +73,6 @@ df = pd.DataFrame(rows, columns=['CellClass', 'Region', 'n', 'n_datasets',
 df = df.sort_values('n', ascending=False)
 log("\n=== CellClass x Region mixing (ratio vs CellClass-only) ===")
 log("\n" + df.to_string(index=False))
-df.to_csv(f'{ROOT}/data/stratified_mixing_region.tsv', sep='\t', index=False)
+df.to_csv(ROOT / 'data/stratified_mixing_region.tsv', sep='\t', index=False)
 log("saved -> data/stratified_mixing_region.tsv")
 log("DONE")
