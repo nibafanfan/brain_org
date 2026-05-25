@@ -506,6 +506,30 @@ on repertoire/correspondence footing, which does not depend on tight cross-datas
   **GO** only if iLISI **and** kBET both clear +0.05 **and** all guardrails hold; otherwise
   **NO-GO → revert to (a)**.
 
-**Status: NO comparator launched yet. Compute is frozen pending this GO/NO-GO.** Thresholds are
-a proposal — adjust as needed. Remaining open items unchanged: full #5 (config + shared-module
-de-dup); queued held-out-*variable*-gene Q2 and calibration reliability/ECE.
+Thresholds are a proposal — adjust as needed. Remaining open items unchanged: full #5 (config +
+shared-module de-dup); queued held-out-*variable*-gene Q2 and calibration reliability/ECE.
+
+### Outcome — comparator RAN (Codex GO), result NO-GO → freeze scVI
+Ran scANVI (label-aware, semi-supervised by `CellClass_cal`, 20 ep, from `scvi_model_v5_full`)
+→ `scripts/train_scanvi_comparator.py`, evaluated vs PCA + scVI in one Benchmarker
+→ `scripts/scib_metrics_comparator.py`, `data/scib_metrics_comparator.tsv`.
+
+| Metric | X_pca | X_scvi | X_scanvi |
+|---|---|---|---|
+| iLISI (batch) | 0.0157 | 0.0152 | 0.0171 |
+| kBET | 0.190 | 0.189 | **0.254** |
+| Graph connectivity | 0.707 | 0.717 | 0.783 |
+| cLISI (bio) | 0.961 | 0.962 | 0.990 |
+| NMI / ARI | 0.33/0.19 | 0.33/0.19 | 0.45/0.27 |
+| Total | 0.444 | 0.446 | 0.484 |
+
+vs scVI: **ΔiLISI = +0.0019 (need ≥+0.05) ❌**, ΔkBET = +0.0651 ✅, cLISI drop = −0.028 ✅.
+**EMBEDDING-LEVEL VERDICT: NO-GO → freeze scVI.** (OOD/confidence guardrails not run — embedding
+gate already failed; no re-transfer.)
+
+Interpretation: scANVI improved kBET / graph-connectivity / bio-conservation but **did not move
+the batch-mixing bar (iLISI flat)** — reinforcing that the 505-batch structure is
+biological/irremovable even for label-aware integration. The bio-conservation gains
+(cLISI/NMI/ARI) are **partly circular** (scANVI is trained on the same `CellClass_cal` labels
+those metrics score against), so they are not independent evidence. **Decision: freeze scVI as
+latent/denoiser; do not claim integration gain vs PCA under the current scIB panel.**
