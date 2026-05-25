@@ -420,9 +420,19 @@ support lineages). Output `data/ood_nullcalibrated.tsv`. (NB: differs from clust
 28%/21% OOD because that asks "near *any* primary cell" while this asks "near *same-class*
 primary cells".)
 
+### #5 config + shared-module de-dup — DONE  (`config.yaml`, `scripts/atlas_common.py`)
+Central `config.yaml` (paths relative to `root`; `--root`/`ATLAS_ROOT` override) + shared
+`atlas_common` module consolidating the copy-pasted logic: `load_config`, `sym2ens` gene
+bridge, `model_genes`, `ens_to_col`, `read_atlas_genes` (memory-safe chunked/row reader),
+`reindex_braun`, `cp10k_log`, `same_frac`, `baseline`, + provenance re-exports.
+`scripts/test_atlas_common.py` smoke test (8/8 PASS). All 14 benchmark/transfer scripts
+migrated in 5 verified batches (foundation + A–D, commits efa98c1→d2423bf): light consumers
+re-run **byte-identical** (stratified_mixing, stratified_mixing_region, q2_correspondence,
+q3_gaps); heavy/frozen transfer scripts migrated without reruns (helpers already proven
+identical). Gene-bridge, model-genes, chunked-reader, and pseudobulk/metrics duplication
+removed repo-wide; no hardcoded absolute ROOT in the benchmark scripts.
+
 ### Still open
-- **#5** full provenance/config + shared-module refactor — partial (stamping done; central
-  config + de-dup of gene-bridge/chunked-reader/metrics still pending).
 - Queued: held-out-*variable*-gene Q2; calibration reliability curve/ECE.
 
 ### Related reference
