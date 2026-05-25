@@ -61,14 +61,19 @@ for c in np.unique(te_cls):
     if nn_c is None:
         continue
     null_c = nn_c.kneighbors(te_lat[m_te])[0].mean(1)
-    thr_c = np.percentile(null_c, 95)
+    thr95, thr99 = np.percentile(null_c, [95, 99])
     m_q = q_cls == c
     if m_q.sum() == 0:
-        ood_c = np.nan
+        ood95 = ood99 = np.nan
     else:
-        ood_c = (nn_c.kneighbors(q_lat[m_q])[0].mean(1) > thr_c).mean() * 100
-    rows.append((c, int(m_q.sum()), round(thr_c, 3), round(ood_c, 1) if m_q.sum() else None))
-strat = pd.DataFrame(rows, columns=['CellClass', 'n_query', 'class_p95_thr', 'ood_pct'])
+        qd = nn_c.kneighbors(q_lat[m_q])[0].mean(1)        # query->train dist, computed once
+        ood95 = (qd > thr95).mean() * 100
+        ood99 = (qd > thr99).mean() * 100
+    rows.append((c, int(m_q.sum()), round(thr95, 3), round(thr99, 3),
+                 round(ood95, 1) if m_q.sum() else None,
+                 round(ood99, 1) if m_q.sum() else None))
+strat = pd.DataFrame(rows, columns=['CellClass', 'n_query', 'class_p95_thr', 'class_p99_thr',
+                                    'ood_pct_p95', 'ood_pct_p99'])
 log("\n" + strat.to_string(index=False))
 out_tsv = f'{ROOT}/data/ood_nullcalibrated.tsv'
 strat.to_csv(out_tsv, sep='\t', index=False)

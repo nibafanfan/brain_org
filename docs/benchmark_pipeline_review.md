@@ -429,3 +429,54 @@ primary cells".)
 - `docs/annotation_schema.md` — schema of the (gitignored) annotation workbooks
   (`brain_organoid(_GSMannotations).xlsx`): sheets, columns/vocabularies, xlsx→obs field map,
   `annotation_level` (gsm vs deposit) semantics, and known data-quality quirks.
+
+---
+
+## 12. Methods-final robustness tables (collated from existing outputs)
+
+### A. Cluster-gating robustness — microglia (the one robustly recovered rare lineage)
+Source: `data/q2_clustergate_sweep.tsv` (recovery/n/centroid across the grid) +
+`data/q2_clustergate.tsv` (transfer agreement / OOD / conf, canonical run seed0·res2).
+Gate thresholds {0.25, 0.30, 0.35} give **identical** results (microglia cluster-mean
+score ≈1.14 ≫ all gates), so threshold is collapsed below.
+
+| seed | res | recovered | n cells (%) | centroid→Braun (margin) |
+|---|---|---|---|---|
+| 0 | 1.0 | Y | 735 (0.184%) | Immune (0.458) |
+| 0 | 1.5 | Y | 735 (0.184%) | Immune (0.454) |
+| 0 | 2.0 | Y | 736 (0.184%) | Immune (0.451) |
+| 1 | 1.0 | Y | 749 (0.187%) | Immune (0.410) |
+| 1 | 1.5 | Y | 755 (0.189%) | Immune (0.409) |
+| 1 | 2.0 | Y | 774 (0.194%) | Immune (0.409) |
+
+Canonical run (seed0·res2): **transfer agreement 98% Immune**, mean conf **0.984**,
+**OOD 28%** (global ref-self threshold), **90% multi-lineage**.
+Other lineages across the grid: **endothelium** recovered only at seed1 (~69–73 cells,
+0.02%, →Vascular) and **not at seed0** → not robust; **"oligo"-marker** cluster recovered
+in all runs but centroid → **Neural crest** (margin 0.03–0.13), not Oligo.
+
+### B. OOD threshold sensitivity (null-calibrated)
+Source: `data/ood_nullcalibrated.tsv` + provenance sidecar. Null = Braun test→train
+mean kNN-distance; global thresholds p95=1.300, p99=1.581.
+
+**Global query OOD:** **p95 = 75.0%**, **p99 = 42.1%** (prior ref-self-p95 method: 78.3%).
+
+**Per-class OOD (vs own-class null):**
+
+| CellClass | n_query | p95 thr | OOD% @p95 | OOD% @p99 |
+|---|---|---|---|---|
+| Vascular | 238 | 1.243 | 89.5 | *(pending)* |
+| Oligo | 6,143 | 1.423 | 86.6 | *(pending)* |
+| Immune | 1,691 | 1.346 | 79.2 | *(pending)* |
+| Fibroblast | 23,165 | 1.427 | 77.0 | *(pending)* |
+| Neuroblast | 60,604 | 1.322 | 75.3 | *(pending)* |
+| Neuronal IPC | 36,202 | 1.391 | 73.0 | *(pending)* |
+| Radial glia | 141,432 | 1.337 | 70.1 | *(pending)* |
+| Glioblast | 66,638 | 1.552 | 69.0 | *(pending)* |
+| Neuron | 126,206 | 1.280 | 68.2 | *(pending)* |
+| Erythrocyte | 17 | 0.710 | 100.0 | *(n too small)* |
+
+Rare support lineages (Vascular/Oligo/Immune) are the **most** per-class OOD — even where
+organoids make the right cell type, it's transcriptomically distinct from primary.
+*Per-class p99 column is now code-ready in `benchmark_ood_nullcalibrated.py` and will populate
+on the next OOD run (not recomputed here to avoid the ~85-min job).*
