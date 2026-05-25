@@ -88,11 +88,20 @@ for i, g in enumerate(mk):
     a.obs[g] = Xm[:, i]
 sc.pp.neighbors(a, use_rep='X_scvi', n_neighbors=15, random_state=cfg.defaults['seed'])
 sc.tl.umap(a, random_state=cfg.defaults['seed'])
-log(f"UMAP computed on {a.n_obs:,}-cell subsample; markers {mk}")
+# Leiden cluster -> cluster-tiled categorical labels (majority vote per cluster) so the
+# CellClass/Region panels read as crisp tiles (like scvi_umap_snapseed), not per-cell speckle.
+sc.tl.leiden(a, resolution=2.0, flavor='igraph', n_iterations=2, directed=False,
+             random_state=cfg.defaults['seed'])
+for c in ['CellClass_cal', 'Region_pred']:
+    maj = a.obs.groupby('leiden', observed=True)[c].agg(
+        lambda s: s.mode().iloc[0] if len(s.mode()) else (s.iloc[0] if len(s) else 'NA'))
+    a.obs[c + '_tiled'] = a.obs['leiden'].map(maj).astype('category')
+log(f"UMAP + Leiden ({a.obs['leiden'].nunique()} clusters); markers {mk}")
 
-# umap point table
+# umap point table (per-cell labels + tiled labels)
 pts = pd.DataFrame(a.obsm['X_umap'][:, :2], columns=['UMAP1', 'UMAP2'], index=names)
-for c in ['CellClass_cal', 'Region_pred', 'age_days', 'organoid_type', 'protocol'] + mk:
+for c in (['CellClass_cal', 'CellClass_cal_tiled', 'Region_pred', 'Region_pred_tiled',
+           'leiden', 'age_days', 'organoid_type', 'protocol'] + mk):
     if c in a.obs:
         pts[c] = a.obs[c].values
 pts.to_csv(OUT / f'umap_points_{TAG}.tsv.gz', sep='\t', compression='gzip')
@@ -104,8 +113,8 @@ PT = 6  # larger points read cleaner on big panels
 
 # Panel set 1: integrated UMAP by label/age/protocol — large panels (one per cell)
 fig, ax = plt.subplots(2, 2, figsize=(28, 24))
-sc.pl.umap(a, color='CellClass_cal', ax=ax[0, 0], show=False, size=PT, legend_loc='right margin', frameon=False, title='CellClass (transferred)')
-sc.pl.umap(a, color='Region_pred', ax=ax[0, 1], show=False, size=PT, legend_loc='right margin', frameon=False, title='Region (transferred)')
+sc.pl.umap(a, color='CellClass_cal_tiled', ax=ax[0, 0], show=False, size=PT, legend_loc='right margin', frameon=False, title='CellClass (cluster-tiled)')
+sc.pl.umap(a, color='Region_pred_tiled', ax=ax[0, 1], show=False, size=PT, legend_loc='right margin', frameon=False, title='Region (cluster-tiled)')
 sc.pl.umap(a, color='age_days', ax=ax[1, 0], show=False, size=PT, cmap='viridis', frameon=False, title='organoid age (days)')
 sc.pl.umap(a, color='organoid_type_topN', ax=ax[1, 1], show=False, size=PT, legend_loc='right margin', frameon=False, title=f'organoid_type (top {LEGEND_TOP_N})')
 fig.suptitle('Integrated organoid atlas (scVI latent UMAP)', fontsize=18, y=1.0)
