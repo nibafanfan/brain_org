@@ -402,8 +402,8 @@ kNN-transfer label). Output `data/q2_clustergate_sweep.tsv`. Conclusions are sta
 Added unintegrated lognorm-PCA(50) as a comparator embedding in the Benchmarker (vs scVI
 latent), pinned seed. Output `data/scib_metrics_baseline.tsv`. **Sobering result: scVI ≈
 unintegrated PCA on every axis** — iLISI 0.0157 (PCA) vs 0.0152 (scVI), kBET 0.190 vs 0.189,
-cLISI 0.961 vs 0.962, Total 0.444 vs 0.446. The scVI latent provides **almost no measurable
-batch-correction benefit over raw PCA**. Two readings (both consistent with prior findings):
+cLISI 0.961 vs 0.962, Total 0.444 vs 0.446. Conclusion (narrowed wording):
+**no measurable integration gain vs PCA under current scIB panel**. Two readings (both consistent with prior findings):
 (a) the 505-batch structure is biological/irremovable, so neither method mixes it — and neither
 should; (b) if better cross-dataset mixing is genuinely needed, the lever is label-aware
 integration (scANVI/scPoli), not this scVI run. Either way, the pipeline should **not claim
@@ -480,3 +480,32 @@ Rare support lineages (Vascular/Oligo/Immune) are the **most** per-class OOD —
 organoids make the right cell type, it's transcriptomically distinct from primary.
 *Per-class p99 column is now code-ready in `benchmark_ood_nullcalibrated.py` and will populate
 on the next OOD run (not recomputed here to avoid the ~85-min job).*
+
+---
+
+## 13. Decision request — integration claim & comparator (GO / NO-GO)
+
+**Finding:** under the current scIB panel there is **no measurable integration gain vs PCA**
+(iLISI 0.0157 vs 0.0152, kBET 0.190 vs 0.189, Total 0.444 vs 0.446). Q1–Q3 are therefore kept
+on repertoire/correspondence footing, which does not depend on tight cross-dataset mixing.
+
+**Decision needed (reviewer):**
+- **Option (a) — Freeze.** Keep scVI as latent/denoiser, **drop integration-gain claims**, ship
+  on the repertoire/correspondence + OOD framing. No further compute.
+- **Option (b) — Scoped comparator.** Run **one** label-aware comparator embedding
+  (scANVI or scPoli) into the same Benchmarker, judged against predefined acceptance thresholds:
+
+  | Criterion | GO threshold |
+  |---|---|
+  | ΔiLISI vs scVI | ≥ **+0.05** |
+  | ΔkBET vs scVI | ≥ **+0.05** |
+  | cLISI drop (biology) | ≤ **0.02** (no collapse) |
+  | Global OOD @p95 | **≤ 75%** (not worse) |
+  | Mean transfer confidence | not worse than current |
+
+  **GO** only if iLISI **and** kBET both clear +0.05 **and** all guardrails hold; otherwise
+  **NO-GO → revert to (a)**.
+
+**Status: NO comparator launched yet. Compute is frozen pending this GO/NO-GO.** Thresholds are
+a proposal — adjust as needed. Remaining open items unchanged: full #5 (config + shared-module
+de-dup); queued held-out-*variable*-gene Q2 and calibration reliability/ECE.
