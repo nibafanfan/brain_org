@@ -128,5 +128,5 @@ pns_neurons:
   marker_genes: [PRPH]
 
 
-# All markers in one unqiue list 
+# All markers in one unique list
 # all_markers: ['SOX2', 'VIM', 'NES', 'FOXG1', 'EMX1', 'HOPX', 'GABRA2', 'GABRB1', 'DLX2', 'TCF7L2', 'SIX3', 'OTX2', 'PAX7', 'VSX2', 'CYP26A1', 'HOXA2', 'HOXB2', 'UNC5C', 'BCAN', 'GPC6', 'HOXD3', 'HOXA3', 'STMN2', 'DCX', 'SLC17A7', 'SLC17A6', 'BCL11B', 'SATB2', 'PITX2', 'BARHL2', 'TFAP2D', 'TFAP2A', 'UNCX', 'INSM1', 'ROBO1', 'NEGR1', 'GAD1', 'GAD2', 'SLC32A1', 'DLX5', 'NKX2-1', 'ISL1', 'NR2F1', 'LHX5', 'LHX1', 'CA8', 'LAMP5', 'SKOR2', 'AQP4', 'GFAP', 'TTR', 'OLIG1', 'MBP', 'AIF1', 'CLDN5', 'DCN', 'SOX10', 'PRPH']
