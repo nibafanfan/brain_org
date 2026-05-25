@@ -98,28 +98,33 @@ for c in ['CellClass_cal', 'Region_pred', 'age_days', 'organoid_type', 'protocol
 pts.to_csv(OUT / f'umap_points_{TAG}.tsv.gz', sep='\t', compression='gzip')
 outputs.append(f'umap_points_{TAG}.tsv.gz')
 
-# Panel set 1: integrated UMAP by label/age/protocol
-fig, ax = plt.subplots(2, 2, figsize=(18, 15))
-sc.pl.umap(a, color='CellClass_cal', ax=ax[0, 0], show=False, size=3, legend_loc='right margin', title='CellClass (transferred)')
-sc.pl.umap(a, color='Region_pred', ax=ax[0, 1], show=False, size=3, legend_loc='right margin', title='Region (transferred)')
-sc.pl.umap(a, color='age_days', ax=ax[1, 0], show=False, size=3, cmap='viridis', title='organoid age (days)')
-sc.pl.umap(a, color='organoid_type_topN', ax=ax[1, 1], show=False, size=3, legend_loc='right margin', title=f'organoid_type (top {LEGEND_TOP_N})')
-fig.suptitle('Integrated organoid atlas (scVI latent UMAP)', fontsize=16)
-fig.tight_layout()
+# shuffle plotting order so dense classes don't bury sparse ones
+a = a[rng.permutation(a.n_obs)].copy()
+PT = 6  # larger points read cleaner on big panels
+
+# Panel set 1: integrated UMAP by label/age/protocol — large panels (one per cell)
+fig, ax = plt.subplots(2, 2, figsize=(28, 24))
+sc.pl.umap(a, color='CellClass_cal', ax=ax[0, 0], show=False, size=PT, legend_loc='right margin', frameon=False, title='CellClass (transferred)')
+sc.pl.umap(a, color='Region_pred', ax=ax[0, 1], show=False, size=PT, legend_loc='right margin', frameon=False, title='Region (transferred)')
+sc.pl.umap(a, color='age_days', ax=ax[1, 0], show=False, size=PT, cmap='viridis', frameon=False, title='organoid age (days)')
+sc.pl.umap(a, color='organoid_type_topN', ax=ax[1, 1], show=False, size=PT, legend_loc='right margin', frameon=False, title=f'organoid_type (top {LEGEND_TOP_N})')
+fig.suptitle('Integrated organoid atlas (scVI latent UMAP)', fontsize=18, y=1.0)
+fig.tight_layout(rect=[0, 0, 1, 0.97])
 for ext in ('png', 'pdf'):
-    fig.savefig(OUT / f'fig1_integrated_umap_{TAG}.{ext}', dpi=120)
+    fig.savefig(OUT / f'fig1_integrated_umap_{TAG}.{ext}', dpi=150)
 outputs += [f'fig1_integrated_umap_{TAG}.png', f'fig1_integrated_umap_{TAG}.pdf']
 plt.close(fig)
 
-# Panel set 2: marker grid
-ncol = 4; nrow = int(np.ceil(len(mk) / ncol))
-fig, ax = plt.subplots(nrow, ncol, figsize=(5 * ncol, 4.5 * nrow)); ax = np.atleast_1d(ax).ravel()
+# Panel set 2: marker grid — bigger panels + per-gene p99 contrast (true CP10K stays correct)
+ncol = 3; nrow = int(np.ceil(len(mk) / ncol))
+fig, ax = plt.subplots(nrow, ncol, figsize=(6.5 * ncol, 5.5 * nrow)); ax = np.atleast_1d(ax).ravel()
 for i, g in enumerate(mk):
-    sc.pl.umap(a, color=g, ax=ax[i], show=False, size=3, cmap='viridis', title=g)
+    sc.pl.umap(a, color=g, ax=ax[i], show=False, size=PT, cmap='viridis', frameon=False,
+               vmin=0, vmax='p99', title=g)            # p99 vmax -> use the dynamic range
 for j in range(len(mk), len(ax)):
     ax[j].axis('off')
-fig.suptitle('Marker-gene expression (log1p CP10K)', fontsize=15); fig.tight_layout()
-fig.savefig(OUT / f'fig1_markers_{TAG}.png', dpi=120); outputs.append(f'fig1_markers_{TAG}.png')
+fig.suptitle('Marker-gene expression (log1p CP10K, vmax=p99)', fontsize=15); fig.tight_layout()
+fig.savefig(OUT / f'fig1_markers_{TAG}.png', dpi=150); outputs.append(f'fig1_markers_{TAG}.png')
 plt.close(fig)
 
 # Panel set 3: per-sample composition stacked bars (all cells)
