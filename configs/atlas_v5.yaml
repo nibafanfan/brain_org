@@ -1,0 +1,44 @@
+root: .
+out_tag: v5_full
+
+paths:
+  atlas_full: data/atlas_v5_full.h5ad
+  scvi_latent_full: data/scvi_latent_v5_full.h5ad
+  braun_reference: data/raw/braun_2023/braun_all.h5ad
+  braun_model_dir: data/braun_scanvi_v5_full
+  canonical_bridge_tsv: data/reference/hnoca_var_canonical.tsv
+
+outputs:
+  processed_dir: data/processed
+  models_dir: data
+  figures_dir: figures
+  benchmarks_dir: results/benchmarks
+
+defaults:
+  preprocess:
+    n_hvg: 3000
+    flavor: cell_ranger
+    min_batch: 50
+    target_sum: 10000
+    random_seed: 0
+  scvi:
+    subsample: 0
+    max_epochs: 15
+    batch_size: 2048
+    random_seed: 0
+  integration_eval:
+    subsample: 200000
+    knn_k: 30
+    tau: 0.5
+    random_seed: 0
+  label_transfer:
+    ref_n: 100000
+    query_n: 200000
+    n_hvg: 2000
+    ref_epochs: 40
+    scanvi_epochs: 20
+    surgery_epochs: 40
+    knn_k: 30
+    ood_threshold_cellclass: 0.8
+    ood_threshold_region: 0.6
+    random_seed: 0

@@ -18,15 +18,16 @@ for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
            "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ.setdefault(_v, str(N_THREADS))
 import argparse, time, gc, threading
+from brain_organoid.config import add_common_overrides, load_config, merge_cli_overrides, resolve_path, require_file, stamp_provenance
 import numpy as np
 import scipy.sparse as sp
 import anndata as ad
 import scanpy as sc
 sc.settings.n_jobs = N_THREADS
 
-ap = argparse.ArgumentParser()
-ap.add_argument('--in', dest='infile', default='data/atlas_v5_full.h5ad')
-ap.add_argument('--out-tag', default='v5',
+ap = add_common_overrides(argparse.ArgumentParser())
+ap.add_argument('--in', dest='infile', default=None)
+ap.add_argument('--out-tag', default=None,
                 help="outputs are data/processed/atlas_<tag>_preprocessed.h5ad + "
                      "data/atlas_<tag>_hvg.tsv (use e.g. v5_5k for experiments)")
 ap.add_argument('--n-hvg', type=int, default=3000)
@@ -34,12 +35,16 @@ ap.add_argument('--flavor', default='cell_ranger')
 ap.add_argument('--force', action='store_true',
                 help='overwrite an existing output (off by default to protect prior runs)')
 args = ap.parse_args()
+cfg = merge_cli_overrides(load_config(args.config), args)
 
-FULL      = args.infile
-OUT       = f'data/processed/atlas_{args.out_tag}_preprocessed.h5ad'
-HVG_TSV   = f'data/atlas_{args.out_tag}_hvg.tsv'
-N_HVG     = args.n_hvg
-FLAVOR    = args.flavor
+out_tag = args.out_tag or cfg.get('out_tag','v5')
+full_cfg = args.infile or cfg['paths']['atlas_full']
+FULL = require_file(resolve_path(cfg, full_cfg), 'atlas input')
+processed_dir = resolve_path(cfg, cfg['outputs']['processed_dir'])
+OUT = processed_dir / f'atlas_{out_tag}_preprocessed.h5ad'
+HVG_TSV = resolve_path(cfg, 'data') / f'atlas_{out_tag}_hvg.tsv'
+N_HVG = args.n_hvg
+FLAVOR = args.flavor
 BATCH_KEY = 'bio_sample'
 MIN_BATCH = 50                   # drop bio_samples with fewer cells (sampling noise)
 TARGET    = 1e4
@@ -124,6 +129,7 @@ log(f"output {out.shape}, layers={list(out.layers.keys())}, counts nnz={out.laye
 
 log(f"writing {OUT} (gzip)")
 out.write_h5ad(OUT, compression='gzip')
+stamp_provenance(OUT.with_suffix('.provenance.json'), cfg, {'input': str(FULL), 'output': str(OUT), 'hvg_tsv': str(HVG_TSV), 'out_tag': out_tag})
 log("write complete; verifying")
 
 B = ad.read_h5ad(OUT, backed='r')

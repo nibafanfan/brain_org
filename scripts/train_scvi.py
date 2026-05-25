@@ -16,6 +16,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
 import argparse, time, sys
 from pathlib import Path
+from brain_organoid.config import add_common_overrides, load_config, merge_cli_overrides, resolve_path, require_file, stamp_provenance
 import numpy as np
 import anndata as ad
 import scvi
@@ -46,13 +47,11 @@ class EpochLogger(Callback):
         total = trainer.max_epochs
         print(f"[epoch {ep:>3}/{total}] " + " ".join(parts), flush=True)
 
-ROOT = Path('/Users/eg/brain_organoid')
-IN = ROOT / 'data/processed/atlas_v5_preprocessed.h5ad'
 
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
-ap = argparse.ArgumentParser()
+ap = add_common_overrides(argparse.ArgumentParser())
 ap.add_argument('--subsample', type=int, default=0)
 ap.add_argument('--max-epochs', type=int, default=0)
 ap.add_argument('--batch-key', default='tech_sample')
@@ -67,6 +66,11 @@ ap.add_argument('--num-workers', type=int, default=0,
                      'Leave 0 unless you have RAM headroom; data is already in '
                      'memory so this rarely helps on MPS anyway.')
 args = ap.parse_args()
+cfg = merge_cli_overrides(load_config(args.config), args)
+out_tag = args.out_tag_override or args.out_tag
+root = resolve_path(cfg, cfg.get('root','.'))
+in_rel = args.in_override or cfg['paths'].get('input') or f"{cfg['outputs']['processed_dir']}/atlas_{cfg.get('out_tag','v5')}_preprocessed.h5ad"
+IN = require_file(resolve_path(cfg, in_rel), 'preprocessed atlas input')
 
 log(f"torch {torch.__version__} | mps={torch.backends.mps.is_available()} | scvi {scvi.__version__}")
 log(f"reading {IN}")
@@ -114,13 +118,14 @@ te = time.time()
 model.train(**kw)
 log(f"training done in {time.time()-te:.0f}s")
 
-mdir = ROOT / f'data/scvi_model_{args.out_tag}'
+mdir = resolve_path(cfg, cfg['outputs']['models_dir']) / f'scvi_model_{out_tag}'
 model.save(str(mdir), overwrite=True)
 log(f"saved model -> {mdir}")
 
 adata.obsm['X_scvi'] = model.get_latent_representation()
-lat = ROOT / f'data/scvi_latent_{args.out_tag}.h5ad'
+lat = resolve_path(cfg, cfg['outputs']['models_dir']) / f'scvi_latent_{out_tag}.h5ad'
 out = ad.AnnData(X=adata.obsm['X_scvi'], obs=adata.obs.copy())
 out.write_h5ad(lat)
 log(f"saved latent ({adata.obsm['X_scvi'].shape}) -> {lat}")
+stamp_provenance(lat.with_suffix('.provenance.json'), cfg, {'input': str(IN), 'latent': str(lat), 'model_dir': str(mdir), 'out_tag': out_tag})
 log("DONE")
