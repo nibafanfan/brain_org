@@ -13,13 +13,14 @@ rate, and a held-out Braun accuracy/recall check (balanced+weighted vs naive).
 """
 import sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import numpy as np, pandas as pd, anndata as ad, scvi
 from sklearn.neighbors import NearestNeighbors
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _provenance import stamp
+from atlas_common import load_config, model_genes, reindex_braun, stamp
 
-ROOT = '/Users/eg/brain_organoid'
-MDIR = f'{ROOT}/data/braun_scanvi_full'
+cfg = load_config()
+ROOT = cfg.root
+MDIR = cfg.braun_scanvi_model
 K = 30
 CAP = 6000          # max ref cells per CellClass (balanced sampling)
 TAU = 0.40          # abstention threshold on max posterior
@@ -29,12 +30,11 @@ def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 rng = np.random.default_rng(0)
 
 # ---- Braun reference latent (balanced subset only -> cheaper)
-vn = list(torch.load(f'{MDIR}/model.pt', map_location='cpu', weights_only=False)['var_names'])
-braun = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')[:, vn].copy()
-braun.layers['counts'] = braun.X.copy()
+vn = model_genes(MDIR)
+braun = reindex_braun(cfg.braun, vn)
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 braun.obs['donor_id'] = braun.obs['donor_id'].astype(str)
-scanvi = scvi.model.SCANVI.load(MDIR, adata=braun)
+scanvi = scvi.model.SCANVI.load(str(MDIR), adata=braun)
 
 cls_all = braun.obs['CellClass'].to_numpy()
 bal_idx = np.concatenate([

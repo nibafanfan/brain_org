@@ -28,10 +28,14 @@ import scvi
 from lightning.pytorch.callbacks import Callback
 from sklearn.neighbors import KNeighborsClassifier
 
-ROOT = Path('/Users/eg/brain_organoid')
-BRAUN = ROOT / 'data/raw/braun_2023/braun_all.h5ad'
-ATLAS = ROOT / 'data/atlas_v5_full.h5ad'
-CANON = ROOT / 'data/reference/hnoca_var_canonical.tsv'
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, sym2ens as _sym2ens
+_cfg = load_config()
+ROOT = _cfg.root
+BRAUN = _cfg.braun
+ATLAS = _cfg.atlas_full
+CANON = _cfg.canonical
 
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
@@ -91,9 +95,7 @@ RARE_PANEL = [
 log(f"scvi {scvi.__version__} | pilot={args.pilot} | out-tag={args.out_tag}")
 
 # ---------------------------------------------------------------- gene bridge
-can = pd.read_csv(CANON, sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+sym2ens = _sym2ens(CANON)
 log(f"bridge: {len(sym2ens)} symbol->ensembl pairs")
 
 # ------------------------------------------------------------ Stage 1: Braun

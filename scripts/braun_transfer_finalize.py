@@ -10,14 +10,17 @@ Memory-safe: streams the 4M-cell query, keeping only the model's genes.
 """
 import os
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-import time
+import sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import numpy as np, pandas as pd, anndata as ad, scvi
 import scipy.sparse as sp
 from sklearn.neighbors import KNeighborsClassifier
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, sym2ens as _sym2ens, model_genes, reindex_braun, read_atlas_genes
 
-ROOT = Path('/Users/eg/brain_organoid')
-MDIR = ROOT / 'data/braun_scanvi_full'
+cfg = load_config()
+ROOT = cfg.root
+MDIR = cfg.braun_scanvi_model
 ACC = 'mps'
 SURGERY_EPOCHS = 15
 KNN_REF_N = 400_000          # Braun cells used to fit the kNN label transfer
@@ -25,15 +28,12 @@ OUT = ROOT / 'data/braun_transfer_full_knn.h5ad'
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
 
-vn = list(torch.load(MDIR/'model.pt', map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(ROOT/'data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+vn = model_genes(MDIR)
+s2e = _sym2ens(cfg.canonical)
 log(f"model genes: {len(vn)}")
 
 # ---- reference + model
-braun = ad.read_h5ad(ROOT/'data/raw/braun_2023/braun_all.h5ad')[:, vn].copy()
-braun.layers['counts'] = braun.X.copy()
+braun = reindex_braun(cfg.braun, vn)
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 braun.obs['Region'] = braun.obs['Region'].astype(str)
 braun.obs['donor_id'] = braun.obs['donor_id'].astype(str)
@@ -50,21 +50,8 @@ log(f"kNN fit on {len(ridx):,} ref cells")
 
 # ---- full query, streamed, model genes only (memory-safe)
 atlas_b = ad.read_h5ad(ROOT/'data/atlas_v5_full.h5ad', backed='r')
-atlas_ens = np.array([sym2ens.get(s, '') for s in atlas_b.var_names])
-ens_to_col = {}
-for c, e in enumerate(atlas_ens):
-    if e and e not in ens_to_col:
-        ens_to_col[e] = c
-cols = np.array([ens_to_col[g] for g in vn if g in ens_to_col])
-present = [g for g in vn if g in ens_to_col]
-parts, seen_n = [], 0
-for i, item in enumerate(atlas_b.chunked_X(250_000)):
-    chunk = item[0] if isinstance(item, tuple) else item
-    parts.append(chunk[:, cols]); seen_n += chunk.shape[0]
-    if i % 4 == 0:
-        log(f"  query chunk {i}: {seen_n:,}/{atlas_b.n_obs:,}")
-query = ad.AnnData(X=sp.vstack(parts).tocsr().astype('float32'), obs=atlas_b.obs.copy())
-del parts
+Xq, present = read_atlas_genes(atlas_b, vn, s2e)        # memory-safe chunked read (all rows)
+query = ad.AnnData(X=Xq, obs=atlas_b.obs.copy())
 query.var_names = present
 query.layers['counts'] = query.X.copy()
 query.obs['CellClass'] = 'Unknown'
