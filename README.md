@@ -30,12 +30,36 @@ Two batch keys are used deliberately: **`bio_sample`** (per-organoid) for HVG
 selection, **`tech_sample`** (sequencing library — the real technical batch) for
 scVI integration.
 
-## Current state (atlas v5)
+## Current state & outcomes (atlas v5)
 
-4.08M cells · 118 deposits · ~500 GSMs · all 8 finalized annotation fields per
-cell (94.5% at `gsm` granularity) · scVI latent trained (clean monotonic ELBO).
-Excludes HNOCA-overlapping datasets and uses HTO-demultiplexed controls for
-pooled deposits. The ~800 GB data tree and annotation workbooks are gitignored.
+**→ Full methods, outcomes, and pilot validation: [`docs/v5_outcomes_and_validation.md`](docs/v5_outcomes_and_validation.md)**
+
+- **Atlas:** 4.08M cells · 118 deposits · ~500 GSMs · canonical 36,842-gene space.
+  Excludes HNOCA-overlapping datasets; pooled/hashed deposits use HTO-demuxed
+  controls.
+- **Annotations:** all 8 finalized fields per cell, **100% value-accurate** vs the
+  source sheet; **94.5% at `gsm` granularity** (`annotation_level` flag marks the
+  5.5% deposit-level fallback). GSM coverage 512/653 (rest are Tier-2 unbuilt or
+  pooled/unsplit).
+- **HVG:** `cell_ranger`, 3000 genes, `batch_key=bio_sample` — chosen because
+  `pearson_residuals` stalled and `seurat_v3` hit a singular-matrix loess at this
+  batch granularity.
+- **scVI:** NB, `n_latent=30`, `batch_key=tech_sample`. **Epoch experiment (15 vs
+  100):** reconstruction converged by epoch 15 (1124.1 → flat); the extra ELBO
+  gain to epoch 100 is *pure KL shrinkage* and validation reconstruction actually
+  drifts up — so 15 epochs is adequate, **not undertrained**. Longer training
+  moved batch/bio mixing only 1.82→1.91; residual batch structure is **structural**
+  (505 libraries confounded with biology), addressed by scANVI / coarser batch key,
+  not more epochs.
+- **Validation:** preprocessed matrix passes integrity checks (integer counts max
+  55,140, log-norm `X` max 8.85, 0 degenerate cells/genes, clean monotonic ELBO).
+  Cell-type markers are biologically coherent atlas-wide (SOX2 39%, VIM 73%,
+  DCX 50%, MKI67 9.5%, RBFOX3 13%, GFAP 7.3%) and **per-deposit pan-markers appear
+  in all 118 deposits → no cross-deposit gene mis-alignment**. One outlier
+  (`gse290048_pineal`) is biologically coherent pineal tissue, flagged as a
+  watch-item.
+
+The ~800 GB data tree and annotation workbooks are gitignored.
 
 ## Layout
 
@@ -73,22 +97,32 @@ Primary brain references and HNOCA artifacts are downloaded by scripts under
 
 ## For reviewers
 
-Feedback wanted on the **research plan** and **model training**, specifically:
+Feedback wanted on the **research plan** and **model training**. **Please read
+[`docs/v5_outcomes_and_validation.md`](docs/v5_outcomes_and_validation.md) first**
+— it has the as-run methods, measured outcomes, and pilot validation (data
+integrity + per-deposit cell-type marker checks), including evidence that
+directly addresses common a-priori concerns:
 
-1. **HVG strategy** — `cell_ranger` flavor, n=3000, `batch_key=bio_sample`:
-   appropriate at this scale and batch granularity? (We moved off
-   `pearson_residuals`/`seurat_v3`, which stalled or hit singular-matrix loess
-   on degenerate per-batch variance.)
-2. **scVI setup** — `n_latent=30`, ~15 epochs, NB likelihood, and the
-   `bio_sample`-for-HVG vs `tech_sample`-for-scVI batch-key split.
-3. **Contamination control** — demultiplexing pooled/cell-hashed deposits from
-   the processed Seurat object rather than raw counts (`fix_gse297594_control.py`
-   as the template). Is this robust / generalizable?
-4. **Annotation provenance** — the per-cell vs deposit-level (`annotation_level`)
-   fallback and its implications for label transfer and benchmarking.
-5. **Reproducibility/portability** — scripts currently use absolute paths and a
-   hard-coded interpreter; what should be parameterized?
+1. **scVI epochs** — we **ran 15 vs 100 epochs**: reconstruction loss is flat
+   (1124.1 → 1124.9), the extra ELBO gain is pure KL shrinkage, and validation
+   reconstruction drifts up. So 15 epochs is adequate, not undertrained; residual
+   batch structure is structural (505 libraries ≈ biology), not an optimization
+   gap. Is our reasoning sound, and is scANVI / a coarser batch key the right next
+   lever (vs more epochs)?
+2. **HVG strategy** — `cell_ranger`, n=3000, `batch_key=bio_sample` (after
+   `pearson_residuals` stalled and `seurat_v3` hit singular-matrix loess). The
+   `MIN_BATCH=50` prune was a **no-op** here (smallest batch 162 cells) — keep or
+   drop the guard? Better flavor for ~4M cells / 505 batches?
+3. **Contamination control** — demuxing pooled/cell-hashed deposits from the
+   Seurat object, not raw counts (`fix_gse297594_control.py`). We agree it should
+   become a first-class `seurat_hto_control` loader in `rebuild_atlas.py` dispatch
+   — review the approach and the generalization.
+4. **Annotation provenance** — per-cell vs deposit-level (`annotation_level`)
+   fallback (94.5% gsm-level) and its impact on label transfer / benchmarking.
+5. **Reproducibility/portability** — absolute paths + hard-coded interpreter:
+   what to parameterize?
 
-Please flag methodological risks, statistical concerns, simpler/more standard
-alternatives, and concrete next steps. Entry points: `docs/rebuild_plan_2026-05-23.md`
-→ `scripts/rebuild_atlas.py` → `scripts/preprocess_atlas.py` → `scripts/train_scvi.py`.
+Please flag methodological risks, statistical concerns, simpler/standard
+alternatives, and concrete next steps. Entry points:
+`docs/v5_outcomes_and_validation.md` · `docs/rebuild_plan_2026-05-23.md` →
+`scripts/rebuild_atlas.py` → `scripts/preprocess_atlas.py` → `scripts/train_scvi.py`.
