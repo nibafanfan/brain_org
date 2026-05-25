@@ -28,7 +28,9 @@ def _lib_versions():
     out = {}
     for m in _LIBS:
         try:
-            out[m] = getattr(importlib.import_module(m), '__version__', '?')
+            # str(): some libs (e.g. torch) return a non-str version object that
+            # anndata cannot serialize into .uns -> coerce to plain str.
+            out[m] = str(getattr(importlib.import_module(m), '__version__', '?'))
         except Exception:
             pass
     return out

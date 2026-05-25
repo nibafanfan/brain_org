@@ -362,8 +362,32 @@ params, timestamp, python + lib versions); `write_sidecar(tsv, ...)` → `<tsv>.
 Wired into `braun_transfer_calibrated.py` (.uns) and `benchmark_q2_heldout.py` (sidecar).
 Full #5 (central config + de-dup of gene-bridge/chunked-reader/metrics into a module) still open.
 
+### #4 Cluster-level marker gating — DONE  (`scripts/benchmark_q2_clustergate.py`)
+Replaces fragile per-cell `score_genes` thresholds: Leiden-cluster the query on the scVI
+latent (400k subsample, res=2), score marker panels PER CLUSTER (ambient-robust), gate
+whole clusters, report prevalence + transferred-label agreement (CellClass_cal = Braun
+cross-ref) + confidence + OOD fraction. Output `data/q2_clustergate.tsv` (+ provenance).
+Results — far cleaner than per-cell, and **corrected a misattribution**:
+- **Microglia**: 1 coherent cluster, 0.18%, marker-score 1.14, **98% agree with transferred
+  Immune**, conf 0.98, **90% multi-lineage** → robustly real.
+- **Endothelium**: **no cluster above gate** → not a resolvable population (scattered/ambient/
+  immature), consistent with Q1–Q3.
+- **"Oligo"-marker cluster**: 1.71%, but **98% transferred as Neural crest, not Oligo**
+  (PLP1/MBP also mark neural-crest/peripheral glia) → per-cell oligo gating was a
+  misattribution; true mature CNS oligodendrocytes don't form a distinct cluster either.
+- OOD-stratified: these rare support clusters are *less* OOD (microglia 28%, neural-crest 21%)
+  than the global 78% — support lineages sit closer to the Braun manifold than the immature
+  neural mass.
+
+### τ-sweep (review #1 refinement) — DONE  (in `braun_transfer_calibrated.py`)
+abstain% by τ: 0.2→0.0, 0.3→0.5, **0.4→3.6**, 0.5→9.3, 0.6→21.9. **τ=0.4 is the knee**
+(steep rise above it); rare classes retained at all τ. Also now saves `CellClass_cal_argmax`
+(pre-abstention) so τ can be re-analyzed without recompute. Provenance bug fixed
+(`str()`-coerce lib versions; torch's version object broke `.uns` serialization).
+
 ### Still open
-- **#4** cluster-level marker gating (replace per-cell `score_genes`) — not started.
-- **#5** full provenance/config + shared module refactor — partial (stamping done).
-- Refinements queued (from review 2): held-out-*variable*-gene Q2; calibration reliability
-  curve/ECE + τ-sweep + null-calibrated OOD (ref train/test); baseline-PCA in scIB + pinned graph params.
+- **#5** full provenance/config + shared module refactor — partial (stamping done; central
+  config + de-dup of gene-bridge/chunked-reader/metrics still pending).
+- Next batch (per review 2): **null-calibrated OOD** (ref train/test distance null) +
+  **baseline-PCA in scIB** (comparative scaled scores, pinned graph params). Also queued:
+  held-out-*variable*-gene Q2; calibration reliability curve/ECE.

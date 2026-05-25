@@ -91,9 +91,18 @@ old_pred = tr_h5.obs['CellClass_pred'].to_numpy()
 log(f"query latent {Q.shape}")
 proba, dist = weighted_posterior(Q)
 conf = proba.max(1)
-new_pred = classes[proba.argmax(1)].astype(object)
+argmax_pred = classes[proba.argmax(1)].astype(object)      # pre-abstention label
+new_pred = argmax_pred.copy()
 abstain = conf < TAU
 new_pred[abstain] = 'Unknown'
+
+# tau-sweep: abstention rate + rare-class retention across thresholds (review #1 refinement)
+log("=== tau-sweep (abstention threshold) ===")
+for tau in (0.2, 0.3, 0.4, 0.5, 0.6):
+    ab = conf < tau
+    rare = {c: int(((argmax_pred == c) & ~ab).sum()) for c in ('Immune', 'Vascular', 'Oligo')}
+    log(f"  tau={tau}: abstain {ab.mean()*100:5.1f}% | retained "
+        f"Immune={rare['Immune']} Vascular={rare['Vascular']} Oligo={rare['Oligo']}")
 
 # OOD: query mean-kNN-distance vs reference in-distribution (ref self kNN dist)
 d_ref, _ = nn.kneighbors(ref_lat[rng.choice(len(ref_lat), 20000, replace=False)])
@@ -109,6 +118,7 @@ log("\n" + cmp.sort_values('new_%', ascending=False).to_string())
 
 out = ad.AnnData(X=Q, obs=tr_h5.obs.copy())
 out.obs['CellClass_cal'] = new_pred
+out.obs['CellClass_cal_argmax'] = argmax_pred       # pre-abstention, for tau re-analysis
 out.obs['CellClass_cal_conf'] = conf
 out.obs['abstain'] = abstain
 out.obs['ood'] = ood
