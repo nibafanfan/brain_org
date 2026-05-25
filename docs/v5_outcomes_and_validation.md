@@ -217,10 +217,12 @@ most common), Midbrain 20.7%, Diencephalon 15.1%, Medulla 12.1%. **Mean confiden
 imprecise, so regional identity transfers noisily (honest, not broken).
 
 ### Caveats to resolve at full scale
-1. **Immune & Vascular = 0.0%** — the key watch item. Benchmark Q2 asks whether
-   multi-lineage protocols add microglia/endothelium matching primary tissue.
-   Either these are rare types a 200k subsample missed, or the transfer can't
-   resolve them — only the full 4M-cell run will tell.
+1. **Immune & Vascular = 0.0%** — investigated (see §6b). **Not biology and not
+   missing features**: the cell types are present (~1–3% in the atlas) and their
+   markers were already in the transfer panel. The cause is **class imbalance +
+   pilot subsampling + argmax** (Immune/Vascular are only 0.5–0.7% of the Braun
+   reference too). The proper test is the **full, un-subsampled run**; if still
+   suppressed, use class-balanced sampling / soft-probability thresholds.
 2. **Validation crosstab was weak** — the atlas `cell_type` column is almost all
    `unknown`, giving no signal. Before the full run, confirm the **finalized
    per-cell annotations** (`cell_type_origin`, `organoid_type`, …,
@@ -233,6 +235,59 @@ imprecise, so regional identity transfers noisily (honest, not broken).
 - Full-atlas **rare-class audit** (immune/vascular/oligo presence).
 - Benchmark **stratified by `annotation_level`** (`gsm` vs `deposit`) so coarse
   fallback cells don't bias results.
+
+## 6b. Rare-lineage representation — HVG depth vs forced marker panel
+
+The pilot's "0% Immune/Vascular" prompted an HVG sensitivity check (3k vs 5k) and
+a marker-prevalence audit. **Key finding: those lineages exist; the features
+didn't.**
+
+### Marker expression prevalence (300k-cell sample, % cells > 0)
+- microglia: P2RY12 **1.0%**, TMEM119 0.64%, CSF1R 0.75%, C1QB 0.17%, CX3CR1 0.09%
+- myeloid/immune: AIF1 **1.35%**, PTPRC 0.79%
+- endothelial: CLDN5 **2.95%**, KDR 0.76%, FLT1 0.67%, PECAM1 0.38%, VWF 0.23%
+
+So there are **thousands of real microglia (~1%) and endothelial (~1–3%) cells**.
+
+### 3k vs 5k HVG (cell_ranger, `batch_key=bio_sample`)
+- 5k is a near-**superset** of 3k (2997/3000 retained) + 2003 new genes → low-risk.
+- 5k **adds endothelial PECAM1, KDR**; 3k already had CLDN5, FLT1.
+- 5k adds **zero microglia-specific markers** — CX3CR1/P2RY12/TMEM119/C1Q/CSF1R are
+  expressed but too **low-variance** to be HVGs at *either* depth.
+- Oligodendrocyte (OLIG1/2, SOX10, MBP, PLP1, PDGFRA) and mural (PDGFRB, RGS5,
+  ACTA2) programs are already fully covered at 3k.
+
+### Conclusion — it's class imbalance, not features (revised after testing)
+We tested the forced-panel hypothesis and it was **wrong for the transfer**:
+- The transfer's panel comes from **Braun's** HVGs (∩ atlas), and **42 of 47**
+  curated markers were *already* selected — forcing the other 5 changed nothing
+  for Immune/Vascular (still 0%) and shifted the composition (Glioblast 12%→34%),
+  i.e. run-to-run instability on the 200k subsample.
+- The real cause: **the rare classes are rare in the Braun reference too** —
+  Immune **0.5%** (8,102 cells), Vascular **0.7%** (11,741), Oligo 0.4%,
+  Erythrocyte 0.5%. In `--pilot` mode the reference is subsampled to 100k, leaving
+  only ~500 Immune / ~700 Vascular training cells, and scANVI's **argmax**
+  prediction essentially never selects a 0.5%-prior class.
+
+So the 0% is **class imbalance + pilot subsampling + argmax**, not missing
+features. Real levers (in priority):
+1. **Full run, no subsampling** — all 1.67M Braun cells give the rare classes
+   8–12k training examples each (vs ~500 in the pilot). This is the proper test
+   and has **not yet been run**.
+2. If still suppressed at full scale: **class-balanced scANVI sampling / class
+   weights**, or **soft-probability thresholds** for rare classes (assign Immune
+   if P(Immune) exceeds a per-class threshold, not just argmax), or an independent
+   **marker-score** assignment for immune/endothelial cells.
+
+The `RARE_PANEL` forcing in `braun_label_transfer.py` is kept only as cheap
+insurance (guarantees the markers are in the panel even when a pilot subsamples
+Braun); it is **not** the fix. 5k is still adopted as the low-risk preprocessing
+baseline (near-superset of 3k, + endothelial PECAM1/KDR), but HVG depth was never
+the rare-lineage bottleneck.
+
+**Artifacts:** 3k = `atlas_v5_preprocessed.h5ad`; 5k =
+`atlas_v5_5k_preprocessed.h5ad` (+ `*_hvg.tsv` each). Prior trained 3k model/latent
+preserved untouched.
 
 ## 7. Known limitations / next steps
 

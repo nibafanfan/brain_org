@@ -67,6 +67,27 @@ UNLAB = 'Unknown'
 train_kw = dict(accelerator=args.accelerator, batch_size=args.batch_size,
                 enable_progress_bar=False, callbacks=[EpochLogger()])
 
+# Curated rare-lineage markers force-added to the Braun HVG panel. These cell
+# types exist in the atlas (~1-3%: microglia P2RY12/TMEM119, endothelial
+# CLDN5/PECAM1) but their specific markers are too low-variance to be selected as
+# HVGs, so scANVI can't resolve Immune/Vascular without them (the pilot's 0%).
+RARE_PANEL = [
+    # microglia / immune / myeloid
+    'PTPRC', 'AIF1', 'CX3CR1', 'P2RY12', 'TMEM119', 'C1QA', 'C1QB', 'C1QC',
+    'CSF1R', 'TYROBP', 'FCER1G', 'CD68', 'ITGAM', 'CD74', 'LAPTM5',
+    # endothelial / vascular
+    'PECAM1', 'CLDN5', 'CDH5', 'FLT1', 'KDR', 'VWF', 'CD34', 'A2M', 'ESAM',
+    'EGFL7', 'EMCN',
+    # mural / pericyte
+    'PDGFRB', 'RGS5', 'ACTA2', 'NOTCH3', 'KCNJ8',
+    # erythrocyte
+    'HBB', 'HBA1', 'HBA2', 'ALAS2', 'GYPA',
+    # fibroblast
+    'COL1A1', 'COL1A2', 'COL3A1', 'DCN', 'LUM',
+    # oligodendrocyte
+    'SOX10', 'OLIG1', 'OLIG2', 'MBP', 'PLP1', 'MOG',
+]
+
 log(f"scvi {scvi.__version__} | pilot={args.pilot} | out-tag={args.out_tag}")
 
 # ---------------------------------------------------------------- gene bridge
@@ -96,6 +117,13 @@ braun.layers['counts'] = braun.X.copy()
 sc.pp.normalize_total(braun, target_sum=1e4)
 sc.pp.log1p(braun)
 sc.pp.highly_variable_genes(braun, n_top_genes=args.n_hvg, flavor='seurat')
+# force-include curated rare-lineage markers that are present in the shared gene
+# space but too low-variance to be HVGs — needed to resolve Immune/Vascular/etc.
+panel_ens = {sym2ens[s] for s in RARE_PANEL if s in sym2ens}
+forced = braun.var_names.isin(panel_ens) & ~braun.var['highly_variable'].values
+braun.var.loc[forced, 'highly_variable'] = True
+log(f"forced {int(forced.sum())} rare-lineage markers into HVG panel "
+    f"({len(panel_ens)} of {len(RARE_PANEL)} bridged to ensembl & in shared space)")
 braun = braun[:, braun.var.highly_variable].copy()
 braun.X = braun.layers['counts'].copy()
 log(f"HVG-subset Braun -> {braun.shape}")
@@ -118,23 +146,44 @@ scanvi.save(str(mdir), overwrite=True)
 log(f"saved reference scANVI -> {mdir}")
 
 # ----------------------------------------------------------- Stage 2: query
+# Memory-safe load: keep ONLY the ~2000 reference genes. The full atlas X is
+# ~92 GB in memory (4M x 36842 @ 7.7% density) and copying it OOMs even on
+# 192 GB. So map the reference gene panel back to atlas columns and read just
+# those, streaming row-chunks for the full run (atlas X is CSR / row-major).
+import scipy.sparse as sp
+ref_genes = list(braun.var_names)                       # ensembl: the scANVI panel
 atlas_b = ad.read_h5ad(ATLAS, backed='r')
-n_q = min(args.query_n, atlas_b.n_obs) if args.pilot else atlas_b.n_obs
-qidx = np.sort(rng.choice(atlas_b.n_obs, n_q, replace=False)) if n_q < atlas_b.n_obs \
-       else np.arange(atlas_b.n_obs)
-query = atlas_b[qidx].to_memory()
-log(f"query loaded: {query.shape}")
+atlas_ens = np.array([sym2ens.get(s, '') for s in atlas_b.var_names])
+ref_set = set(ref_genes)
+keep_cols, keep_ens, seen = [], [], set()
+for c, e in enumerate(atlas_ens):
+    if e in ref_set and e not in seen:
+        seen.add(e); keep_cols.append(c); keep_ens.append(e)
+keep_cols = np.array(keep_cols)
+log(f"query: {len(keep_cols)}/{len(ref_genes)} reference genes present in atlas "
+    f"(missing get zero-padded by prepare_query_anndata)")
 
-# rename query genes symbol->ensembl, dedup, set counts layer
-ens = np.array([sym2ens.get(s, '') for s in query.var_names])
-keep = ens != ''
-query = query[:, keep].copy()
-query.var_names = ens[keep]
-query = query[:, ~query.var_names.duplicated()].copy()
-query.layers['counts'] = query.X.copy()
+n_q = min(args.query_n, atlas_b.n_obs) if args.pilot else atlas_b.n_obs
+if args.pilot and n_q < atlas_b.n_obs:
+    qidx = np.sort(rng.choice(atlas_b.n_obs, n_q, replace=False))
+    Xq = atlas_b[qidx].to_memory().X[:, keep_cols]
+    qobs = atlas_b.obs.iloc[qidx].copy()
+else:
+    qobs = atlas_b.obs.copy()
+    parts, seen_n = [], 0
+    for i, item in enumerate(atlas_b.chunked_X(250_000)):
+        chunk = item[0] if isinstance(item, tuple) else item  # yields (X, start, end)
+        parts.append(chunk[:, keep_cols]); seen_n += chunk.shape[0]
+        if i % 4 == 0:
+            log(f"  query chunk {i}: {seen_n:,}/{atlas_b.n_obs:,} cells read")
+    Xq = sp.vstack(parts).tocsr(); del parts
+Xq = Xq.astype('float32')
+query = ad.AnnData(X=Xq, obs=qobs)
+query.var_names = keep_ens
+query.layers['counts'] = query.X.copy()                 # small now (~7 GB)
 query.obs[args.label_key] = UNLAB
 query.obs[args.ref_batch_key] = query.obs[args.query_batch_key].astype(str)
-log(f"query renamed to ensembl -> {query.shape}")
+log(f"query built: {query.shape}")
 
 # align to reference gene panel (zero-pads missing), then surgery
 scvi.model.SCANVI.prepare_query_anndata(query, scanvi)
@@ -170,18 +219,51 @@ for k, v in query.obs['Region_pred'].value_counts(normalize=True).items():
     log(f"   {k:24} {v*100:5.1f}%")
 log(f"   mean Region confidence: {query.obs['Region_conf'].mean():.3f}")
 
-# crosstab vs organoid's own annotation if present
-for col in ('annotation', 'cell_type', 'cell_type_original'):
-    if col in query.obs and query.obs[col].notna().any():
-        log(f"=== CellClass_pred vs organoid {col} (top rows) ===")
-        ct = pd.crosstab(query.obs[col], query.obs['CellClass_pred'])
-        log("\n" + ct.head(12).to_string())
-        break
+# crosstab vs organoid's own annotation — pick the col with the most MEANINGFUL
+# labels (cell_type is 100% 'unknown'; cell_type_original has ~47k real labels)
+NULLISH = {'unknown', 'nan', 'none', '', 'na'}
+def meaningful_n(col):
+    if col not in query.obs: return -1
+    return (~query.obs[col].astype(str).str.lower().isin(NULLISH)).sum()
+# NB: exclude 'cell_type_origin' — it's the pluripotent line (esc/ipsc), NOT a
+# cell type, so it can't validate CellClass even though it's fully populated.
+cands = sorted(('annotation', 'cell_type', 'cell_type_original'),
+               key=meaningful_n, reverse=True)
+best = cands[0]
+if meaningful_n(best) > 0:
+    m = ~query.obs[best].astype(str).str.lower().isin(NULLISH)
+    log(f"=== CellClass_pred vs organoid {best} ({m.sum():,} labeled cells) ===")
+    ct = pd.crosstab(query.obs.loc[m, best], query.obs.loc[m, 'CellClass_pred'])
+    log("\n" + ct.to_string())
 
-out = ad.AnnData(X=query.obsm['X_scanvi'],
-                 obs=query.obs[['CellClass_pred', 'CellClass_conf',
-                                'Region_pred', 'Region_conf',
-                                args.query_batch_key]].copy())
+# --- Region_pred vs finalized organoid_type (100% coverage) — headline cross-check.
+# organoid_type is the strongest sheet ground truth: a Midbrain organoid should
+# map to Midbrain region, a Cortical/Cerebral one to Telencephalon/Forebrain.
+if 'organoid_type' in query.obs:
+    ot = query.obs['organoid_type'].astype(str)
+    m = ~ot.str.lower().isin(NULLISH)
+    if m.sum() > 0:
+        log(f"=== Region_pred vs organoid_type ({m.sum():,} cells, row-normalized %) ===")
+        ct = (pd.crosstab(query.obs.loc[m, 'organoid_type'],
+                          query.obs.loc[m, 'Region_pred'], normalize='index') * 100)
+        top_ot = ot[m].value_counts().head(12).index
+        log("\n" + ct.loc[ct.index.intersection(top_ot)].round(1).to_string())
+
+# --- transfer confidence stratified by annotation provenance (gsm vs deposit),
+# so benchmark claims aren't inflated/deflated by coarse deposit-level fallback.
+if 'annotation_level' in query.obs:
+    log("=== confidence by annotation_level (gsm = authoritative, deposit = coarse) ===")
+    for lvl, sub in query.obs.groupby('annotation_level', observed=True):
+        log(f"   {lvl:8} n={len(sub):>9,} | CellClass conf {sub['CellClass_conf'].mean():.3f}"
+            f" | Region conf {sub['Region_conf'].mean():.3f}")
+
+# save transfer + the columns needed to stratify / cross-check downstream
+keep_obs = ['CellClass_pred', 'CellClass_conf', 'Region_pred', 'Region_conf',
+            args.query_batch_key]
+for extra in ('organoid_type', 'annotation_level', 'cell_type_original', 'gsm'):
+    if extra in query.obs and extra not in keep_obs:
+        keep_obs.append(extra)
+out = ad.AnnData(X=query.obsm['X_scanvi'], obs=query.obs[keep_obs].copy())
 op = ROOT / f'data/braun_transfer_{args.out_tag}.h5ad'
 out.write_h5ad(op)
 log(f"saved -> {op}")
