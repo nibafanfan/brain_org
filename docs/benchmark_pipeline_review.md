@@ -318,16 +318,34 @@ Output: `data/braun_transfer_full_calibrated.h5ad` (adds `CellClass_cal`,
 so it demonstrates classifier capability, not the magnitude of the imbalance fix; the
 real evidence of the fix is the query-distribution shift above.
 
-### Still open (unchanged from §8)
-- **#2** scIB metrics (replace same-neighbor ratios) — not started.
+### #2 scIB metrics — DONE  (`scripts/scib_metrics_eval.py`)
+Replaces the crude same-neighbor ratio with the `scib-metrics` Benchmarker panel,
+computed on the scVI latent (300k subsample), batch=`dataset_slug`,
+label=`CellClass_cal` (abstained dropped). **Installed in an isolated venv
+(`/Users/eg/.venvs/scib`, scib-metrics 0.5.9 + jax) to keep jax/numpy churn OUT of the
+scvi base env** (the base env has known numpy-ABI fragility). Output `data/scib_metrics.tsv`.
+
+Results (raw, single embedding → per-metric values interpretable; aggregates are
+summaries): **Batch** — iLISI **0.015**, kBET 0.185, PCR 0.004, graph connectivity 0.683;
+**Bio** — cLISI **0.962**, silhouette label 0.502, isolated labels 0.629, NMI/ARI 0.293/0.154.
+→ confirms **poor batch integration + good biology preservation**; the earlier same-neighbor
+ratios (~10–17×) were directionally correct. This is now the integration yardstick (the
+same-neighbor scripts are demoted to supplementary).
+
+### Single calibrated-label rerun — DONE  (`scripts/benchmark_rerun_calibrated.py`)
+Recomputes Q1 + Q2 on `CellClass_cal` vs old `CellClass_pred` in one pass.
+- **Q1 robust**: multi-lineage still adds microglia (+12pp), oligo (+16), neural crest (+22),
+  endothelium (+5). **Correction:** Glioblast's +23 multi-enrichment was an argmax artifact
+  → +4 under calibration. Neuroblast single-enrichment robust (−19).
+- **Q2 robust**: graded correspondence preserved (core neural 0.88–0.93 > microglia 0.76 /
+  endothelium 0.76); **diagonal dominance 12/12 both old and new**. Minor downshifts only.
+- **Q3 unchanged**: aggregates by Braun labels on the organoid side → organoid-label
+  calibration does not affect it.
+
+**Net:** the benchmark conclusions survive both the calibrated labels and the proper metrics;
+the only material change is correcting the overstated Glioblast enrichment.
+
+### Still open
 - **#3** de-circularize Q2 via held-out genes + bootstrap CIs — not started.
 - **#4** cluster-level marker gating (replace per-cell `score_genes`) — not started.
 - **#5** provenance/config + shared module — not started.
-
-### Open question for the reviewer
-The Q1–Q3 benchmarks (§3 Stage F) still run on the **old argmax** labels
-(`CellClass_pred`), not the calibrated `CellClass_cal`. Given the distribution shift
-(IPC/Oligo ~2×) but stable *qualitative* conclusions, is re-running the benchmarks on
-calibrated labels worth it before tackling #2–#5, or should the metric/provenance
-hardening come first? (Our current lean: do #2 scIB next, then re-run benchmarks once,
-on calibrated labels, under the new metrics.)
