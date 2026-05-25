@@ -9,12 +9,17 @@ CellClass / Region / Age, separately for multi- vs single-lineage organoid cells
 Gaps persisting under multi-lineage = the answer. Expect (from Q2) older ages and
 vascular/oligo to be poorly covered.
 """
-import time
-import numpy as np, pandas as pd, anndata as ad, scvi, torch
+import argparse, sys, time
+from pathlib import Path
+import numpy as np, pandas as pd, anndata as ad, scvi
 from sklearn.neighbors import NearestNeighbors
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, model_genes, reindex_braun
 
-ROOT = '/Users/eg/brain_organoid'
-MDIR = f'{ROOT}/data/braun_scanvi_full'
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
+MDIR = cfg.braun_scanvi_model
 N = 80_000          # per source in each balanced pool
 K = 30
 t0 = time.time()
@@ -22,12 +27,11 @@ def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 rng = np.random.default_rng(0)
 
 # ---- Braun latent + labels
-vn = list(torch.load(f'{MDIR}/model.pt', map_location='cpu', weights_only=False)['var_names'])
-braun = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')[:, vn].copy()
-braun.layers['counts'] = braun.X.copy()
+vn = model_genes(MDIR)
+braun = reindex_braun(cfg.braun, vn)
 for c in ['CellClass', 'Region', 'donor_id']:
     braun.obs[c] = braun.obs[c].astype(str)
-scanvi = scvi.model.SCANVI.load(MDIR, adata=braun)
+scanvi = scvi.model.SCANVI.load(str(MDIR), adata=braun)
 bidx = np.sort(rng.choice(braun.n_obs, N, replace=False))
 bsub = braun[bidx].copy()
 b_lat = scanvi.get_latent_representation(bsub)

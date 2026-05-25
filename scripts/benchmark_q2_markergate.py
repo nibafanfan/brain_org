@@ -4,11 +4,16 @@ Braun transfer, which gives them ~0%), then check (a) how many cells, (b) which
 protocols (multi vs single), (c) how many the transfer MISSED, (d) whether the
 gated cells transcriptomically match the Braun primary counterpart.
 """
-import time
-import numpy as np, pandas as pd, anndata as ad, scanpy as sc, scvi, torch
+import argparse, sys, time
+from pathlib import Path
+import numpy as np, pandas as pd, anndata as ad, scanpy as sc
 import scipy.sparse as sp
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, sym2ens, model_genes, read_atlas_genes
 
-ROOT = '/Users/eg/brain_organoid'
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
 N_SUB = 500_000
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
@@ -24,29 +29,21 @@ MARKERS = {
 }
 LINEAGE_TO_BRAUN = {'microglia': 'Immune', 'endothelium': 'Vascular', 'oligo': 'Oligo'}
 
-vn = list(torch.load(f'{ROOT}/data/braun_scanvi_full/model.pt',
-                     map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(f'{ROOT}/data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
-mk_ens = {lin: [sym2ens[s] for s in syms if s in sym2ens and sym2ens[s] in set(vn)]
+vn = model_genes(cfg.braun_scanvi_model)
+s2e = sym2ens(cfg.canonical)
+mk_ens = {lin: [s2e[s] for s in syms if s in s2e and s2e[s] in set(vn)]
           for lin, syms in MARKERS.items()}
 for lin, g in mk_ens.items():
     log(f"{lin}: {len(g)}/{len(MARKERS[lin])} markers in 2006-gene panel")
 
 # ---- organoid subsample, 2006 genes, normalized
-tr = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_knn.h5ad', backed='r')
-atlas = ad.read_h5ad(f'{ROOT}/data/atlas_v5_full.h5ad', backed='r')
-ens_to_col = {}
-for c, e in enumerate(sym2ens.get(s, '') for s in atlas.var_names):
-    if e and e not in ens_to_col:
-        ens_to_col[e] = c
-cols = [ens_to_col[g] for g in vn]
+tr = ad.read_h5ad(ROOT / 'data/braun_transfer_full_knn.h5ad', backed='r')
+atlas = ad.read_h5ad(cfg.atlas_full, backed='r')
 rng = np.random.default_rng(0)
 idx = np.sort(rng.choice(atlas.n_obs, N_SUB, replace=False))
-sub = atlas[idx].to_memory()
-a = ad.AnnData(X=sub.X[:, cols].astype('float32'), obs=sub.obs.copy())
-a.var_names = vn
+oX, present = read_atlas_genes(atlas, vn, s2e, row_idx=idx)
+a = ad.AnnData(X=oX, obs=atlas.obs.iloc[idx].copy())
+a.var_names = present
 a.obs['CellClass_pred'] = tr.obs['CellClass_pred'].reindex(a.obs_names).values
 a.obs['ml'] = a.obs['multi_lineage'].astype(str).map(
     {'1': 'multi', 'True': 'multi', '0': 'single', 'False': 'single', 'No': 'single'})

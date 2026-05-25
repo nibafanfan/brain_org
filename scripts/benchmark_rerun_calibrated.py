@@ -5,19 +5,24 @@ correspondence) for BOTH label sets in one pass. Q3 aggregates by Braun labels o
 the organoid side, so it is unaffected by organoid-label calibration (noted only).
 Integration quality is now reported by scIB (data/scib_metrics.tsv), not here.
 """
-import time
-import numpy as np, pandas as pd, anndata as ad, torch
+import argparse, sys, time
+from pathlib import Path
+import numpy as np, pandas as pd, anndata as ad
 import scipy.sparse as sp
 from scipy.stats import mannwhitneyu
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from atlas_common import load_config, sym2ens, model_genes, read_atlas_genes, cp10k_log
 
-ROOT = '/Users/eg/brain_organoid'
-N_SUB = 300_000
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
+N_SUB = cfg.defaults['n_sub']
 MIN_FRAC, MIN_CELLS = 0.01, 20
 NULLISH = {'Unknown', 'nan', 'none', ''}
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 
-cal = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_calibrated.h5ad')
+cal = ad.read_h5ad(cfg.calibrated)
 o = cal.obs
 o['ml'] = o['multi_lineage'].astype(str).map(
     {'1': 'multi', 'True': 'multi', '0': 'single', 'False': 'single', 'No': 'single'})
@@ -40,38 +45,27 @@ log("=== Q1: multi-minus-single deposit-presence (pp), old vs calibrated ===")
 log("\n" + q1.sort_values('new (cal)', ascending=False).to_string())
 
 # ---------- Q2: pseudobulk correspondence vs Braun, old vs new label ----------
-vn = list(torch.load(f'{ROOT}/data/braun_scanvi_full/model.pt',
-                     map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(f'{ROOT}/data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+vn = model_genes(cfg.braun_scanvi_model)
+s2e = sym2ens(cfg.canonical)
+pb = cp10k_log
 
-def pb(counts_by_class):
-    cp = counts_by_class.div(counts_by_class.sum(1), axis=0) * 1e4
-    return np.log1p(cp)
-
-braun = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')[:, vn]
+braun = ad.read_h5ad(cfg.braun)[:, vn]
 braun.obs['CellClass'] = braun.obs['CellClass'].astype(str)
 bX = braun.X.toarray() if sp.issparse(braun.X) else np.asarray(braun.X)
 bdf = pd.DataFrame(bX, columns=vn); bdf['__c'] = braun.obs['CellClass'].values
 b_pb = pb(bdf.groupby('__c').mean())
 log(f"Braun pseudobulk {b_pb.shape}")
 
-atlas = ad.read_h5ad(f'{ROOT}/data/atlas_v5_full.h5ad', backed='r')
-ens_to_col = {}
-for c, e in enumerate(sym2ens.get(s, '') for s in atlas.var_names):
-    if e and e not in ens_to_col:
-        ens_to_col[e] = c
-cols = [ens_to_col[g] for g in vn]
+atlas = ad.read_h5ad(cfg.atlas_full, backed='r')
 rng = np.random.default_rng(0)
 idx = np.sort(rng.choice(atlas.n_obs, N_SUB, replace=False))
-asub = atlas[idx].to_memory()
-oX = asub.X[:, cols]
+oX, present = read_atlas_genes(atlas, vn, s2e, row_idx=idx)
+obs_names = atlas.obs_names[idx]
 odf = pd.DataFrame(oX.toarray() if sp.issparse(oX) else np.asarray(oX),
-                   columns=vn, index=asub.obs_names)
+                   columns=present, index=obs_names)
 
 def self_corr(label):
-    lab = cal.obs[label].reindex(asub.obs_names)
+    lab = cal.obs[label].reindex(obs_names)
     m = ~lab.astype(str).isin(NULLISH)
     d = odf[m.values].copy(); d['__c'] = lab[m.values].values
     o_pb = pb(d.groupby('__c').mean())
