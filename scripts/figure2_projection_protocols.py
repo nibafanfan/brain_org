@@ -205,12 +205,24 @@ def main() -> None:
     ].transform("sum")
     region_prop.to_csv(tabdir / "regional_proportion_by_dataset_protocol.csv", index=False)
 
-    plt.figure(figsize=(11, 5))
-    sns.barplot(data=region_prop, x="protocol", y="prop", hue=reg_col)
+    # protocol x region heatmap (legible at 45 protocols), rows grouped by organoid_type
+    proto_region = pd.crosstab(df["protocol"], df[reg_col], normalize="index")
+    if "organoid_type" in df.columns:
+        otype = df.groupby("protocol", observed=True)["organoid_type"].agg(
+            lambda s: s.astype(str).mode().iloc[0] if len(s.mode()) else "NA")
+        order = otype.sort_values().index
+        proto_region = proto_region.loc[order]
+        ylabels = [f"[{otype[p]}] {p[:48]}" for p in proto_region.index]
+    else:
+        ylabels = [p[:60] for p in proto_region.index]
+    proto_region.to_csv(tabdir / "region_proportion_by_protocol_matrix.csv")
+    plt.figure(figsize=(9, max(8, 0.22 * len(proto_region))))
+    sns.heatmap(proto_region, cmap="viridis", yticklabels=ylabels,
+                cbar_kws={"label": "region proportion"})
     plt.xticks(rotation=45, ha="right")
-    plt.title("Regional proportion by protocol")
+    plt.title("Region proportion by protocol (rows grouped by organoid_type)")
     plt.tight_layout()
-    plt.savefig(figdir / "regional_proportions_by_protocol.png", dpi=220)
+    plt.savefig(figdir / "regional_proportions_by_protocol.png", dpi=200)
     plt.close()
 
     # 4) max presence score distributions by class/region
@@ -266,18 +278,22 @@ def main() -> None:
     ood["ood_rate"] = (df[conf_col] < 0.2).groupby(df["protocol"]).mean().values
     ood.to_csv(tabdir / "ood_confidence_abstention_summary.csv", index=False)
 
-    # Covariate-adjusted protocol effects
-    df["multi_lineage_bin"] = _safe_bool(df["multi_lineage"]).astype(int).astype(str)
-    _model_protocol_effects(
-        df,
-        protocol_col="protocol",
-        target_col="multi_lineage_bin",
-        age_col="age_days",
-        unguided_col="unguided",
-        vascularized_col="vascularized",
-        annotation_level_col="annotation_level",
-        out_csv=tabdir / "covariate_adjusted_protocol_effects_multi_lineage.csv",
-    )
+    # Covariate-adjusted protocol effects on SUPPORT-LINEAGE outcomes (non-circular).
+    # Target = per-cell membership in Immune (microglia) / Vascular (endothelium),
+    # adjusted for age + guidance + vascularization + annotation level. (NB: targeting
+    # multi_lineage is circular -- protocol ~= the multi_lineage annotation -> separation.)
+    for lineage in ("Immune", "Vascular"):
+        df[f"is_{lineage}"] = (df[cls_col] == lineage).astype(int).astype(str)
+        _model_protocol_effects(
+            df,
+            protocol_col="protocol",
+            target_col=f"is_{lineage}",
+            age_col="age_days",
+            unguided_col="unguided",
+            vascularized_col="vascularized",
+            annotation_level_col="annotation_level",
+            out_csv=tabdir / f"covariate_adjusted_protocol_effects_{lineage.lower()}.csv",
+        )
 
     print(f"Done. Wrote outputs to: {outdir}")
 
