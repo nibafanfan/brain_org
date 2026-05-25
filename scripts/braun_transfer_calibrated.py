@@ -11,9 +11,12 @@ braun_scanvi_full model. Adds:
 Reports rare-class (Immune/Vascular) recovery vs the old argmax run, abstention
 rate, and a held-out Braun accuracy/recall check (balanced+weighted vs naive).
 """
-import time
+import sys, time
+from pathlib import Path
 import numpy as np, pandas as pd, anndata as ad, scvi, torch
 from sklearn.neighbors import NearestNeighbors
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _provenance import stamp
 
 ROOT = '/Users/eg/brain_organoid'
 MDIR = f'{ROOT}/data/braun_scanvi_full'
@@ -109,6 +112,8 @@ out.obs['CellClass_cal'] = new_pred
 out.obs['CellClass_cal_conf'] = conf
 out.obs['abstain'] = abstain
 out.obs['ood'] = ood
+stamp(out, __file__, {'K': K, 'CAP': CAP, 'TAU': TAU, 'EPS': EPS,
+                      'ref_p95_dist': float(ref_p95), 'n_ref_balanced': int(len(bal_idx))})
 out.write_h5ad(f'{ROOT}/data/braun_transfer_full_calibrated.h5ad')
 log("saved -> data/braun_transfer_full_calibrated.h5ad")
 log("DONE")
