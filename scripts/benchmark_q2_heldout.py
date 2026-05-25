@@ -16,11 +16,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from atlas_common import (load_config, sym2ens, model_genes, ens_to_col,
                           read_atlas_genes, cp10k_log, write_sidecar)
 
-ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+ap = argparse.ArgumentParser()
+ap.add_argument('--root', default=None)
+ap.add_argument('--variable', action='store_true',
+                help='restrict held-out pool to canonical HVGs (variable AND outside the '
+                     '2006 transfer features) -> sharper de-circularization than random')
+ap.add_argument('--out-tag', default='')
+args = ap.parse_args()
 cfg = load_config(root=args.root)
 ROOT = cfg.root
 N_SUB = 200_000
-N_GENES = 4000          # random held-out genes for the pseudobulk correlation
+N_GENES = 4000          # held-out genes for the pseudobulk correlation
 B = 200                 # bootstrap resamples
 CAP = 15_000            # cells/class cap for bootstrap speed
 NULLISH = {'Unknown', 'nan', 'none', ''}
@@ -39,9 +45,17 @@ braun_all = ad.read_h5ad(cfg.braun)
 atlas = ad.read_h5ad(cfg.atlas_full, backed='r')
 e2c = ens_to_col(atlas.var_names, s2e)
 shared = [g for g in braun_all.var_names if g in e2c]
-held_out = sorted(set(shared) - vn)                 # genes NOT used by the transfer
-sample = list(rng.choice(held_out, min(N_GENES, len(held_out)), replace=False))
-log(f"shared={len(shared)} held_out={len(held_out)} -> sampled {len(sample)} held-out genes")
+held_out = set(shared) - vn                          # genes NOT used by the transfer
+if args.variable:                                    # variable AND outside transfer features
+    can = pd.read_csv(cfg.canonical, sep='\t')
+    hvg_ens = set(can.loc[can['highly_variable'] == True, 'ensembl'].astype(str))
+    pool = sorted(held_out & hvg_ens)
+    log(f"held_out={len(held_out)} ∩ canonical-HVG={len(pool)} (variable, transfer-independent)")
+else:
+    pool = sorted(held_out)
+    log(f"held_out={len(held_out)} (random pool)")
+sample = list(rng.choice(pool, min(N_GENES, len(pool)), replace=False))
+log(f"shared={len(shared)} -> sampled {len(sample)} held-out genes (variable={args.variable})")
 
 # Braun pseudobulk on held-out genes
 braun = braun_all[:, sample]
@@ -88,7 +102,8 @@ df['circular_inflation'] = (df['on_feature_selfcorr'] - df['heldout_selfcorr']).
 log("=== Q2 correspondence on HELD-OUT genes (de-circularized) ===")
 log("\n" + df.to_string(index=False))
 log(f"diagonal dominance (held-out): {int(df['diag_ok'].sum())}/{len(df)}")
-out_tsv = f'{ROOT}/data/q2_heldout_correspondence.tsv'
+tag = (f"_{args.out_tag}" if args.out_tag else ("_variable" if args.variable else ""))
+out_tsv = f'{ROOT}/data/q2_heldout_correspondence{tag}.tsv'
 df.to_csv(out_tsv, sep='\t', index=False)
 write_sidecar(out_tsv, __file__, {'N_SUB': N_SUB, 'N_GENES': N_GENES, 'B': B, 'CAP': CAP,
                                   'n_held_out_genes': len(held_out)})

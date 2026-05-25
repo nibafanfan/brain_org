@@ -432,8 +432,28 @@ q3_gaps); heavy/frozen transfer scripts migrated without reruns (helpers already
 identical). Gene-bridge, model-genes, chunked-reader, and pseudobulk/metrics duplication
 removed repo-wide; no hardcoded absolute ROOT in the benchmark scripts.
 
+### Held-out-*variable*-gene Q2 — DONE  (`scripts/benchmark_q2_heldout.py --variable`)
+Sharper de-circularization: restricted the held-out pool to canonical-HVG genes (variable AND
+outside the 2006 transfer features; 2,119 sampled). **Diagonal dominance 12/12** — even
+stronger than the random-gene version (11/12; Vascular now also self-matches). Q2 correspondence
+is robustly non-circular on discriminating, transfer-independent genes. Output
+`data/q2_heldout_correspondence_variable.tsv`.
+
+### Calibration reliability / ECE — DONE  (`scripts/calibration_ece.py`)
+Calibrated on held-out Braun (same weighted-balanced kNN, train/test split). **ECE = 0.0123**
+(<0.05 = well-calibrated), test accuracy 0.965; reliability tracks closely (conf 0.75→acc 0.81,
+0.85→0.92, 0.99→0.997). The transfer confidence `CellClass_cal_conf` is trustworthy → validates
+the abstention (τ) / OOD gating. Output `data/calibration_ece.tsv`.
+
+### Poster figures — DONE  (`scripts/poster_panels.py`, `scripts/figure2_projection_protocols.py`)
+HNOCA Fig1/Fig2-style outputs in `data/poster/`. Fig1: integrated scVI-UMAP (CellClass_cal /
+Region_pred / age / organoid_type), 7-marker grid, per-sample composition bars, metadata summary
+(+ manifest). Fig2 (adapted from Codex, on full 4M atlas): protocol×region heatmap, rare-lineage
+prevalence (microglia protocols top), OOD/abstention by protocol, under-represented states, and
+covariate-adjusted protocol→support-lineage effect sizes (microglia OR up to ~72; non-circular).
+
 ### Still open
-- Queued: held-out-*variable*-gene Q2; calibration reliability curve/ECE.
+- (nothing blocking) — optional: primary-decision-panel marker refinement.
 
 ### Related reference
 - `docs/annotation_schema.md` — schema of the (gitignored) annotation workbooks
