@@ -273,3 +273,61 @@ per-cell gating (ambient), and any single-run number without a CI. The science s
 (*multi-lineage adds primary-faithful microglia, partially oligo, but not vasculature or posterior
 identity*) rests on relative/repertoire comparisons that survive these caveats; the methods scaffold
 underneath needs the hardening listed in §8.
+
+---
+
+## 11. Addendum — changes since commit `aac5cb4` (post first review)
+
+This section responds to the first code review. **Review item #1 (calibrated kNN
+transfer) is implemented; items #2–#5 are still open.**
+
+### #1 Calibrated kNN transfer — DONE  (`scripts/braun_transfer_calibrated.py`)
+Replaces the argmax / unweighted / unbalanced kNN in `braun_transfer_finalize.py`.
+Reuses the **existing** joint latents (query `X` from `braun_transfer_full_knn.h5ad`
++ Braun reference latent from `braun_scanvi_full`) — **no surgery re-run** (~3 min).
+Adds:
+- **distance-weighted** votes (`w = 1/(dist+eps)`),
+- **class-balanced reference sampling** (cap 6000/class → 61,744 ref cells) as prior
+  correction for rare classes,
+- **abstention**: max posterior < `TAU=0.4` → `CellClass_cal='Unknown'`,
+- **OOD diagnostic**: query mean-kNN-distance vs the reference's own 95th-percentile
+  in-distribution distance.
+
+Output: `data/braun_transfer_full_calibrated.h5ad` (adds `CellClass_cal`,
+`CellClass_cal_conf`, `abstain`, `ood`).
+
+**Results:**
+- Held-out Braun accuracy 0.965 (weighted) ≈ 0.964 (unweighted); rare-class recall
+  (Immune/Vascular/Oligo) = **1.0 both** → the classifier separates rare types fine
+  *when the reference is balanced*; the original under-calling was **reference
+  imbalance**, not a classifier defect.
+- Query distribution rebalanced: Radial glia 38→28%, Neuron 31→25% (were over-called);
+  **Neuronal IPC 3.5→7.3%, Oligo 0.6→1.2% (both ~2×)**, Glioblast/Neuroblast/Neural
+  crest up; abstain 3.6%.
+- **Truly-rare types stay rare** even with balanced ref + perfect Braun recall:
+  Immune 0.24→0.35%, Vascular 0.03→0.05%. ⇒ microglia/endothelium are **biologically
+  scarce in organoids** (~0.2–0.4%, consistent with marker gating), not a transfer
+  artifact. The Q1–Q3 rare-type gap is real.
+- **OOD = 78.3%** — 78% of organoid cells are farther from Braun than 95% of Braun
+  cells are from each other. This **quantifies the organoid↔primary domain offset**
+  (= Q3's ~0.05 coverage, §5/§7.3) and is the strongest evidence yet that transferred
+  labels are a **"nearest fetal correlate," not ground truth**. Recommend foregrounding
+  this in any writeup.
+
+**Caveat on the held-out check:** train/test were both drawn from the *balanced* subset,
+so it demonstrates classifier capability, not the magnitude of the imbalance fix; the
+real evidence of the fix is the query-distribution shift above.
+
+### Still open (unchanged from §8)
+- **#2** scIB metrics (replace same-neighbor ratios) — not started.
+- **#3** de-circularize Q2 via held-out genes + bootstrap CIs — not started.
+- **#4** cluster-level marker gating (replace per-cell `score_genes`) — not started.
+- **#5** provenance/config + shared module — not started.
+
+### Open question for the reviewer
+The Q1–Q3 benchmarks (§3 Stage F) still run on the **old argmax** labels
+(`CellClass_pred`), not the calibrated `CellClass_cal`. Given the distribution shift
+(IPC/Oligo ~2×) but stable *qualitative* conclusions, is re-running the benchmarks on
+calibrated labels worth it before tackling #2–#5, or should the metric/provenance
+hardening come first? (Our current lean: do #2 scIB next, then re-run benchmarks once,
+on calibrated labels, under the new metrics.)
