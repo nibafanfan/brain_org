@@ -214,6 +214,18 @@ for k, v in vc.items():
     log(f"   {k:24} {v*100:5.1f}%")
 log(f"   mean CellClass confidence: {query.obs['CellClass_conf'].mean():.3f} "
     f"| frac > 0.8: {(query.obs['CellClass_conf']>0.8).mean():.2f}")
+
+# soft-probability rare-class diagnostic: are Immune/Vascular/etc. present
+# *sub-argmax*? If many cells have P(class)>thresh while argmax=0, a per-class
+# soft threshold recovers them (cheap fix); if meanP≈0, the classifier truly
+# isn't learning the class (needs class balancing / more reference signal).
+if hasattr(soft, 'columns'):
+    argmax_ct = query.obs['CellClass_pred'].value_counts()
+    log("=== soft-probability check: argmax count vs P>0.3 vs mean P per class ===")
+    for cls in soft.columns:
+        log(f"   {str(cls):16} argmax={int(argmax_ct.get(cls,0)):>9,} | "
+            f"P>0.3={int((soft[cls]>0.3).sum()):>9,} | meanP={soft[cls].mean():.4f}")
+
 log("=== TRANSFERRED Region ===")
 for k, v in query.obs['Region_pred'].value_counts(normalize=True).items():
     log(f"   {k:24} {v*100:5.1f}%")
