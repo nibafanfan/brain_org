@@ -8,14 +8,17 @@ recompute correspondence on genes HELD OUT of the transfer feature set (shared
 atlas∩Braun genes minus the 2006), with bootstrap CIs over cells. If the diagonal
 still dominates on held-out genes, the correspondence is real, not circular.
 """
-import sys, time
+import argparse, sys, time
 from pathlib import Path
-import numpy as np, pandas as pd, anndata as ad, torch
+import numpy as np, pandas as pd, anndata as ad
 import scipy.sparse as sp
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _provenance import write_sidecar
+from atlas_common import (load_config, sym2ens, model_genes, ens_to_col,
+                          read_atlas_genes, cp10k_log, write_sidecar)
 
-ROOT = '/Users/eg/brain_organoid'
+ap = argparse.ArgumentParser(); ap.add_argument('--root', default=None); args = ap.parse_args()
+cfg = load_config(root=args.root)
+ROOT = cfg.root
 N_SUB = 200_000
 N_GENES = 4000          # random held-out genes for the pseudobulk correlation
 B = 200                 # bootstrap resamples
@@ -29,22 +32,16 @@ t0 = time.time()
 def log(m): print(f"[{time.time()-t0:7.1f}s] {m}", flush=True)
 rng = np.random.default_rng(0)
 
-vn = set(torch.load(f'{ROOT}/data/braun_scanvi_full/model.pt',
-                    map_location='cpu', weights_only=False)['var_names'])
-can = pd.read_csv(f'{ROOT}/data/reference/hnoca_var_canonical.tsv', sep='\t')
-sym2ens = {s: e for s, e in zip(can['hgnc_symbol'].astype(str), can['ensembl'].astype(str))
-           if isinstance(e, str) and e.startswith('ENSG')}
+vn = set(model_genes(cfg.braun_scanvi_model))
+s2e = sym2ens(cfg.canonical)
 
-braun_all = ad.read_h5ad(f'{ROOT}/data/raw/braun_2023/braun_all.h5ad')
-atlas = ad.read_h5ad(f'{ROOT}/data/atlas_v5_full.h5ad', backed='r')
-atlas_ens = np.array([sym2ens.get(s, '') for s in atlas.var_names])
-shared = [g for g in braun_all.var_names if g in set(atlas_ens) and g != '']
+braun_all = ad.read_h5ad(cfg.braun)
+atlas = ad.read_h5ad(cfg.atlas_full, backed='r')
+e2c = ens_to_col(atlas.var_names, s2e)
+shared = [g for g in braun_all.var_names if g in e2c]
 held_out = sorted(set(shared) - vn)                 # genes NOT used by the transfer
 sample = list(rng.choice(held_out, min(N_GENES, len(held_out)), replace=False))
 log(f"shared={len(shared)} held_out={len(held_out)} -> sampled {len(sample)} held-out genes")
-
-def cp10k_log(mat):                                  # rows=class, cols=gene mean counts
-    return np.log1p(mat.div(mat.sum(1), axis=0) * 1e4)
 
 # Braun pseudobulk on held-out genes
 braun = braun_all[:, sample]
@@ -54,17 +51,12 @@ b_pb = cp10k_log(bdf.groupby('__c').mean())
 log(f"Braun pseudobulk (held-out): {b_pb.shape}")
 
 # organoid pseudobulk on held-out genes, by calibrated label
-cal = ad.read_h5ad(f'{ROOT}/data/braun_transfer_full_calibrated.h5ad', backed='r')
-ens_to_col = {}
-for c, e in enumerate(atlas_ens):
-    if e and e not in ens_to_col:
-        ens_to_col[e] = c
-cols = [ens_to_col[g] for g in sample]
+cal = ad.read_h5ad(cfg.calibrated, backed='r')
 idx = np.sort(rng.choice(atlas.n_obs, N_SUB, replace=False))
-asub = atlas[idx].to_memory()
-oX = asub.X[:, cols]
+oX, _present = read_atlas_genes(atlas, sample, s2e, row_idx=idx)
+obs_names = atlas.obs_names[idx]
 oX = oX.toarray() if sp.issparse(oX) else np.asarray(oX)
-lab = cal.obs['CellClass_cal'].reindex(asub.obs_names).astype(str).to_numpy()
+lab = cal.obs['CellClass_cal'].reindex(obs_names).astype(str).to_numpy()
 keep = ~pd.Series(lab).isin(NULLISH).to_numpy()
 oX, lab = oX[keep], lab[keep]
 log(f"organoid cells (labeled): {oX.shape[0]:,}")
