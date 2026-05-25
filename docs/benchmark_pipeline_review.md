@@ -345,7 +345,49 @@ Recomputes Q1 + Q2 on `CellClass_cal` vs old `CellClass_pred` in one pass.
 **Net:** the benchmark conclusions survive both the calibrated labels and the proper metrics;
 the only material change is correcting the overstated Glioblast enrichment.
 
+### #3 De-circularize Q2 — DONE  (`scripts/benchmark_q2_heldout.py`)
+Recomputes organoid↔Braun pseudobulk correspondence on **genes held out of the 2006
+transfer feature set** (32,740 shared genes available; 4,000 sampled), with bootstrap
+CIs. Result: **diagonal dominance 11/12 on independent genes**, self-corr 0.84–0.96,
+tight CIs; `circular_inflation` is *negative* everywhere (held-out ≥ on-feature) → the
+correspondence is **not** a circular artifact. Caveat: random held-out genes are
+housekeeping-dominated (uniformly high corr) so the readout is diagonal dominance, not
+magnitude; a held-out-*variable*-gene variant would be sharper (follow-up). Only failure:
+Vascular (n=107) → Neural crest by 0.018 (the already-weak rarest class). Output
+`data/q2_heldout_correspondence.tsv` (+ `.provenance.json`).
+
+### #5-lite Provenance stamping — DONE  (`scripts/_provenance.py`)
+Shared helper: `stamp(adata, script, params)` → `.uns['provenance']` (git SHA, script,
+params, timestamp, python + lib versions); `write_sidecar(tsv, ...)` → `<tsv>.provenance.json`.
+Wired into `braun_transfer_calibrated.py` (.uns) and `benchmark_q2_heldout.py` (sidecar).
+Full #5 (central config + de-dup of gene-bridge/chunked-reader/metrics into a module) still open.
+
+### #4 Cluster-level marker gating — DONE  (`scripts/benchmark_q2_clustergate.py`)
+Replaces fragile per-cell `score_genes` thresholds: Leiden-cluster the query on the scVI
+latent (400k subsample, res=2), score marker panels PER CLUSTER (ambient-robust), gate
+whole clusters, report prevalence + transferred-label agreement (CellClass_cal = Braun
+cross-ref) + confidence + OOD fraction. Output `data/q2_clustergate.tsv` (+ provenance).
+Results — far cleaner than per-cell, and **corrected a misattribution**:
+- **Microglia**: 1 coherent cluster, 0.18%, marker-score 1.14, **98% agree with transferred
+  Immune**, conf 0.98, **90% multi-lineage** → robustly real.
+- **Endothelium**: **no cluster above gate** → not a resolvable population (scattered/ambient/
+  immature), consistent with Q1–Q3.
+- **"Oligo"-marker cluster**: 1.71%, but **98% transferred as Neural crest, not Oligo**
+  (PLP1/MBP also mark neural-crest/peripheral glia) → per-cell oligo gating was a
+  misattribution; true mature CNS oligodendrocytes don't form a distinct cluster either.
+- OOD-stratified: these rare support clusters are *less* OOD (microglia 28%, neural-crest 21%)
+  than the global 78% — support lineages sit closer to the Braun manifold than the immature
+  neural mass.
+
+### τ-sweep (review #1 refinement) — DONE  (in `braun_transfer_calibrated.py`)
+abstain% by τ: 0.2→0.0, 0.3→0.5, **0.4→3.6**, 0.5→9.3, 0.6→21.9. **τ=0.4 is the knee**
+(steep rise above it); rare classes retained at all τ. Also now saves `CellClass_cal_argmax`
+(pre-abstention) so τ can be re-analyzed without recompute. Provenance bug fixed
+(`str()`-coerce lib versions; torch's version object broke `.uns` serialization).
+
 ### Still open
-- **#3** de-circularize Q2 via held-out genes + bootstrap CIs — not started.
-- **#4** cluster-level marker gating (replace per-cell `score_genes`) — not started.
-- **#5** provenance/config + shared module — not started.
+- **#5** full provenance/config + shared module refactor — partial (stamping done; central
+  config + de-dup of gene-bridge/chunked-reader/metrics still pending).
+- Next batch (per review 2): **null-calibrated OOD** (ref train/test distance null) +
+  **baseline-PCA in scIB** (comparative scaled scores, pinned graph params). Also queued:
+  held-out-*variable*-gene Q2; calibration reliability curve/ECE.
