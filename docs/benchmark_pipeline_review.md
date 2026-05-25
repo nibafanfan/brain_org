@@ -385,9 +385,47 @@ abstain% by τ: 0.2→0.0, 0.3→0.5, **0.4→3.6**, 0.5→9.3, 0.6→21.9. **τ
 (pre-abstention) so τ can be re-analyzed without recompute. Provenance bug fixed
 (`str()`-coerce lib versions; torch's version object broke `.uns` serialization).
 
+### #4 robustness sweep — DONE  (`scripts/benchmark_q2_clustergate_sweep.py`)
+Resolutions {1.0,1.5,2.0} × gate {0.25,0.30,0.35} × 2 seeds, + per-cluster **Braun
+centroid-correlation** (top class + margin, on the 2006 genes — independent of the
+kNN-transfer label). Output `data/q2_clustergate_sweep.tsv`. Conclusions are stable:
+- **Microglia**: same ~0.18% single cluster every run, centroid → **Immune, margin 0.41–0.46**
+  (decisive). Transfer label and expression-centroid agree.
+- **Endothelium**: at/below the detection limit — seed0 finds **no cluster** at any res;
+  seed1 finds a ~70-cell (0.02%) cluster that centroids → Vascular (margin ~0.17). Not a
+  reliably resolvable population.
+- **"Oligo"-marker cluster**: centroid → **Neural crest** in all 6 runs (small margin 0.03–0.13,
+  since neural-crest/oligo share PLP1/MBP programs) → confirms the misattribution; no clean
+  mature-CNS-oligo population.
+
+### Baseline-PCA scIB — DONE  (`scripts/scib_metrics_baseline.py`)
+Added unintegrated lognorm-PCA(50) as a comparator embedding in the Benchmarker (vs scVI
+latent), pinned seed. Output `data/scib_metrics_baseline.tsv`. **Sobering result: scVI ≈
+unintegrated PCA on every axis** — iLISI 0.0157 (PCA) vs 0.0152 (scVI), kBET 0.190 vs 0.189,
+cLISI 0.961 vs 0.962, Total 0.444 vs 0.446. The scVI latent provides **almost no measurable
+batch-correction benefit over raw PCA**. Two readings (both consistent with prior findings):
+(a) the 505-batch structure is biological/irremovable, so neither method mixes it — and neither
+should; (b) if better cross-dataset mixing is genuinely needed, the lever is label-aware
+integration (scANVI/scPoli), not this scVI run. Either way, the pipeline should **not claim
+strong integration credit** from scVI on these metrics.
+
+### Null-calibrated OOD — DONE  (`scripts/benchmark_ood_nullcalibrated.py`)
+Built an in-distribution null (Braun test→train kNN-dist; p95=1.300, p99=1.581) instead of the
+ref-self threshold. **Global query OOD: 75.0% (>p95), 42.1% (>p99)** — confirms the prior
+self-method 78.3% (robust to calibration). **Per-class OOD** (each class vs its own Braun null):
+every class majority-OOD (68–90%), and the **rare support lineages are *most* offset** —
+Vascular 90%, Oligo 87%, Immune 79% vs dominant neural ~68–70%. I.e. even where organoids make
+the right cell type, it is transcriptomically distinct from the primary counterpart (worst for
+support lineages). Output `data/ood_nullcalibrated.tsv`. (NB: differs from clustergate's global
+28%/21% OOD because that asks "near *any* primary cell" while this asks "near *same-class*
+primary cells".)
+
 ### Still open
-- **#5** full provenance/config + shared module refactor — partial (stamping done; central
+- **#5** full provenance/config + shared-module refactor — partial (stamping done; central
   config + de-dup of gene-bridge/chunked-reader/metrics still pending).
-- Next batch (per review 2): **null-calibrated OOD** (ref train/test distance null) +
-  **baseline-PCA in scIB** (comparative scaled scores, pinned graph params). Also queued:
-  held-out-*variable*-gene Q2; calibration reliability curve/ECE.
+- Queued: held-out-*variable*-gene Q2; calibration reliability curve/ECE.
+
+### Related reference
+- `docs/annotation_schema.md` — schema of the (gitignored) annotation workbooks
+  (`brain_organoid(_GSMannotations).xlsx`): sheets, columns/vocabularies, xlsx→obs field map,
+  `annotation_level` (gsm vs deposit) semantics, and known data-quality quirks.
