@@ -17,21 +17,36 @@ N_THREADS = 16
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
            "NUMBA_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
     os.environ.setdefault(_v, str(N_THREADS))
-import time, gc, threading
+import argparse, time, gc, threading
 import numpy as np
 import scipy.sparse as sp
 import anndata as ad
 import scanpy as sc
 sc.settings.n_jobs = N_THREADS
 
-FULL      = 'data/atlas_v5_full.h5ad'
-OUT       = 'data/processed/atlas_v5_preprocessed.h5ad'
-HVG_TSV   = 'data/atlas_v5_hvg.tsv'
-N_HVG     = 3000
-FLAVOR    = 'cell_ranger'        # dispersion-binning, no loess (can't throw singular-matrix)
+ap = argparse.ArgumentParser()
+ap.add_argument('--in', dest='infile', default='data/atlas_v5_full.h5ad')
+ap.add_argument('--out-tag', default='v5',
+                help="outputs are data/processed/atlas_<tag>_preprocessed.h5ad + "
+                     "data/atlas_<tag>_hvg.tsv (use e.g. v5_5k for experiments)")
+ap.add_argument('--n-hvg', type=int, default=3000)
+ap.add_argument('--flavor', default='cell_ranger')
+ap.add_argument('--force', action='store_true',
+                help='overwrite an existing output (off by default to protect prior runs)')
+args = ap.parse_args()
+
+FULL      = args.infile
+OUT       = f'data/processed/atlas_{args.out_tag}_preprocessed.h5ad'
+HVG_TSV   = f'data/atlas_{args.out_tag}_hvg.tsv'
+N_HVG     = args.n_hvg
+FLAVOR    = args.flavor
 BATCH_KEY = 'bio_sample'
 MIN_BATCH = 50                   # drop bio_samples with fewer cells (sampling noise)
 TARGET    = 1e4
+
+if os.path.exists(OUT) and not args.force:
+    raise SystemExit(f"ABORT: {OUT} already exists — use --force to overwrite "
+                     f"(guard protects prior training inputs).")
 
 t0 = time.time()
 def log(m): print(f"[{time.time()-t0:8.1f}s] {m}", flush=True)
