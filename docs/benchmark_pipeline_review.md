@@ -385,9 +385,160 @@ abstain% by τ: 0.2→0.0, 0.3→0.5, **0.4→3.6**, 0.5→9.3, 0.6→21.9. **τ
 (pre-abstention) so τ can be re-analyzed without recompute. Provenance bug fixed
 (`str()`-coerce lib versions; torch's version object broke `.uns` serialization).
 
+### #4 robustness sweep — DONE  (`scripts/benchmark_q2_clustergate_sweep.py`)
+Resolutions {1.0,1.5,2.0} × gate {0.25,0.30,0.35} × 2 seeds, + per-cluster **Braun
+centroid-correlation** (top class + margin, on the 2006 genes — independent of the
+kNN-transfer label). Output `data/q2_clustergate_sweep.tsv`. Conclusions are stable:
+- **Microglia**: same ~0.18% single cluster every run, centroid → **Immune, margin 0.41–0.46**
+  (decisive). Transfer label and expression-centroid agree.
+- **Endothelium**: at/below the detection limit — seed0 finds **no cluster** at any res;
+  seed1 finds a ~70-cell (0.02%) cluster that centroids → Vascular (margin ~0.17). Not a
+  reliably resolvable population.
+- **"Oligo"-marker cluster**: centroid → **Neural crest** in all 6 runs (small margin 0.03–0.13,
+  since neural-crest/oligo share PLP1/MBP programs) → confirms the misattribution; no clean
+  mature-CNS-oligo population.
+
+### Baseline-PCA scIB — DONE  (`scripts/scib_metrics_baseline.py`)
+Added unintegrated lognorm-PCA(50) as a comparator embedding in the Benchmarker (vs scVI
+latent), pinned seed. Output `data/scib_metrics_baseline.tsv`. **Sobering result: scVI ≈
+unintegrated PCA on every axis** — iLISI 0.0157 (PCA) vs 0.0152 (scVI), kBET 0.190 vs 0.189,
+cLISI 0.961 vs 0.962, Total 0.444 vs 0.446. Conclusion (narrowed wording):
+**no measurable integration gain vs PCA under current scIB panel**. Two readings (both consistent with prior findings):
+(a) the 505-batch structure is biological/irremovable, so neither method mixes it — and neither
+should; (b) if better cross-dataset mixing is genuinely needed, the lever is label-aware
+integration (scANVI/scPoli), not this scVI run. Either way, the pipeline should **not claim
+strong integration credit** from scVI on these metrics.
+
+### Null-calibrated OOD — DONE  (`scripts/benchmark_ood_nullcalibrated.py`)
+Built an in-distribution null (Braun test→train kNN-dist; p95=1.300, p99=1.581) instead of the
+ref-self threshold. **Global query OOD: 75.0% (>p95), 42.1% (>p99)** — confirms the prior
+self-method 78.3% (robust to calibration). **Per-class OOD** (each class vs its own Braun null):
+every class majority-OOD (68–90%), and the **rare support lineages are *most* offset** —
+Vascular 90%, Oligo 87%, Immune 79% vs dominant neural ~68–70%. I.e. even where organoids make
+the right cell type, it is transcriptomically distinct from the primary counterpart (worst for
+support lineages). Output `data/ood_nullcalibrated.tsv`. (NB: differs from clustergate's global
+28%/21% OOD because that asks "near *any* primary cell" while this asks "near *same-class*
+primary cells".)
+
 ### Still open
-- **#5** full provenance/config + shared module refactor — partial (stamping done; central
+- **#5** full provenance/config + shared-module refactor — partial (stamping done; central
   config + de-dup of gene-bridge/chunked-reader/metrics still pending).
-- Next batch (per review 2): **null-calibrated OOD** (ref train/test distance null) +
-  **baseline-PCA in scIB** (comparative scaled scores, pinned graph params). Also queued:
-  held-out-*variable*-gene Q2; calibration reliability curve/ECE.
+- Queued: held-out-*variable*-gene Q2; calibration reliability curve/ECE.
+
+### Related reference
+- `docs/annotation_schema.md` — schema of the (gitignored) annotation workbooks
+  (`brain_organoid(_GSMannotations).xlsx`): sheets, columns/vocabularies, xlsx→obs field map,
+  `annotation_level` (gsm vs deposit) semantics, and known data-quality quirks.
+
+---
+
+## 12. Methods-final robustness tables (collated from existing outputs)
+
+### A. Cluster-gating robustness — microglia (the one robustly recovered rare lineage)
+Source: `data/q2_clustergate_sweep.tsv` (recovery/n/centroid across the grid) +
+`data/q2_clustergate.tsv` (transfer agreement / OOD / conf, canonical run seed0·res2).
+Gate thresholds {0.25, 0.30, 0.35} give **identical** results (microglia cluster-mean
+score ≈1.14 ≫ all gates), so threshold is collapsed below.
+
+| seed | res | recovered | n cells (%) | centroid→Braun (margin) |
+|---|---|---|---|---|
+| 0 | 1.0 | Y | 735 (0.184%) | Immune (0.458) |
+| 0 | 1.5 | Y | 735 (0.184%) | Immune (0.454) |
+| 0 | 2.0 | Y | 736 (0.184%) | Immune (0.451) |
+| 1 | 1.0 | Y | 749 (0.187%) | Immune (0.410) |
+| 1 | 1.5 | Y | 755 (0.189%) | Immune (0.409) |
+| 1 | 2.0 | Y | 774 (0.194%) | Immune (0.409) |
+
+Canonical run (seed0·res2): **transfer agreement 98% Immune**, mean conf **0.984**,
+**OOD 28%** (global ref-self threshold), **90% multi-lineage**.
+Other lineages across the grid: **endothelium** recovered only at seed1 (~69–73 cells,
+0.02%, →Vascular) and **not at seed0** → not robust; **"oligo"-marker** cluster recovered
+in all runs but centroid → **Neural crest** (margin 0.03–0.13), not Oligo.
+
+### B. OOD threshold sensitivity (null-calibrated)
+Source: `data/ood_nullcalibrated.tsv` + provenance sidecar. Null = Braun test→train
+mean kNN-distance; global thresholds p95=1.300, p99=1.581.
+
+**Global query OOD:** **p95 = 75.0%**, **p99 = 42.1%** (prior ref-self-p95 method: 78.3%).
+
+**Per-class OOD (vs own-class null):**
+
+| CellClass | n_query | p95 thr | OOD% @p95 | OOD% @p99 |
+|---|---|---|---|---|
+| Vascular | 238 | 1.243 | 89.5 | *(pending)* |
+| Oligo | 6,143 | 1.423 | 86.6 | *(pending)* |
+| Immune | 1,691 | 1.346 | 79.2 | *(pending)* |
+| Fibroblast | 23,165 | 1.427 | 77.0 | *(pending)* |
+| Neuroblast | 60,604 | 1.322 | 75.3 | *(pending)* |
+| Neuronal IPC | 36,202 | 1.391 | 73.0 | *(pending)* |
+| Radial glia | 141,432 | 1.337 | 70.1 | *(pending)* |
+| Glioblast | 66,638 | 1.552 | 69.0 | *(pending)* |
+| Neuron | 126,206 | 1.280 | 68.2 | *(pending)* |
+| Erythrocyte | 17 | 0.710 | 100.0 | *(n too small)* |
+
+Rare support lineages (Vascular/Oligo/Immune) are the **most** per-class OOD — even where
+organoids make the right cell type, it's transcriptomically distinct from primary.
+*Per-class p99 column is now code-ready in `benchmark_ood_nullcalibrated.py` and will populate
+on the next OOD run (not recomputed here to avoid the ~85-min job).*
+
+---
+
+## 13. Decision request — integration claim & comparator (GO / NO-GO)
+
+**Finding:** under the current scIB panel there is **no measurable integration gain vs PCA**
+(iLISI 0.0157 vs 0.0152, kBET 0.190 vs 0.189, Total 0.444 vs 0.446). Q1–Q3 are therefore kept
+on repertoire/correspondence footing, which does not depend on tight cross-dataset mixing.
+
+**Decision needed (reviewer):**
+- **Option (a) — Freeze.** Keep scVI as latent/denoiser, **drop integration-gain claims**, ship
+  on the repertoire/correspondence + OOD framing. No further compute.
+- **Option (b) — Scoped comparator.** Run **one** label-aware comparator embedding
+  (scANVI or scPoli) into the same Benchmarker, judged against predefined acceptance thresholds:
+
+  | Criterion | GO threshold |
+  |---|---|
+  | ΔiLISI vs scVI | ≥ **+0.05** |
+  | ΔkBET vs scVI | ≥ **+0.05** |
+  | cLISI drop (biology) | ≤ **0.02** (no collapse) |
+  | Global OOD @p95 | **≤ 75%** (not worse) |
+  | Mean transfer confidence | not worse than current |
+
+  **GO** only if iLISI **and** kBET both clear +0.05 **and** all guardrails hold; otherwise
+  **NO-GO → revert to (a)**.
+
+Thresholds are a proposal — adjust as needed. Remaining open items unchanged: full #5 (config +
+shared-module de-dup); queued held-out-*variable*-gene Q2 and calibration reliability/ECE.
+
+### Outcome — comparator RAN (Codex GO), result NO-GO → freeze scVI
+Ran scANVI (label-aware, semi-supervised by `CellClass_cal`, 20 ep, from `scvi_model_v5_full`)
+→ `scripts/train_scanvi_comparator.py`, evaluated vs PCA + scVI in one Benchmarker
+→ `scripts/scib_metrics_comparator.py`, `data/scib_metrics_comparator.tsv`.
+
+| Metric | X_pca | X_scvi | X_scanvi |
+|---|---|---|---|
+| iLISI (batch) | 0.0157 | 0.0152 | 0.0171 |
+| kBET | 0.190 | 0.189 | **0.254** |
+| Graph connectivity | 0.707 | 0.717 | 0.783 |
+| cLISI (bio) | 0.961 | 0.962 | 0.990 |
+| NMI / ARI | 0.33/0.19 | 0.33/0.19 | 0.45/0.27 |
+| Total | 0.444 | 0.446 | 0.484 |
+
+vs scVI: **ΔiLISI = +0.0019 (need ≥+0.05) ❌**, ΔkBET = +0.0651 ✅, cLISI drop = −0.028 ✅.
+**EMBEDDING-LEVEL VERDICT: NO-GO → freeze scVI.** (OOD/confidence guardrails not run — embedding
+gate already failed; no re-transfer.)
+
+Interpretation: scANVI improved kBET / graph-connectivity / bio-conservation but **did not move
+the batch-mixing bar (iLISI flat)** — reinforcing that the 505-batch structure is
+biological/irremovable even for label-aware integration. The bio-conservation gains
+(cLISI/NMI/ARI) are **partly circular** (scANVI is trained on the same `CellClass_cal` labels
+those metrics score against), so they are not independent evidence. **Decision: freeze scVI as
+latent/denoiser; do not claim integration gain vs PCA under the current scIB panel.**
+
+**DECISION LOCKED (reviewer-confirmed, 2026-05-25).** Keep NO-GO; the pre-registered
+**conjunctive** gate (ΔiLISI **AND** ΔkBET) was **not** relaxed to OR post hoc (doing so would
+weaken credibility). **iLISI is the primary batch-mixing metric in this decision gate; the kBET
+improvement is acknowledged but insufficient without iLISI movement.** scVI is retained as the
+latent/denoiser backbone; all results are framed on **repertoire / correspondence + OOD-aware
+transfer**, not integration-gain claims. No further integration experiments planned.
+Next (compute idle until specified): full **#5** (config + shared-module de-dup),
+**held-out-*variable*-gene Q2**, **calibration reliability/ECE**.
