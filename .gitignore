@@ -38,6 +38,24 @@ data/external/
 *.bam
 *.bai
 
+# Exclude the entire data/ tree (atlas inputs/outputs, annotation xlsx, audit
+# tsv/json, figures, *.bak, _archive/_blocked/_pending staging). Code review
+# needs scripts/docs only — never the ~800 GB data tree or annotation workbooks.
+data/*
+!data/.gitkeep
+
+# Annotation workbooks anywhere (incl. repo root) — never publish raw data
+*.xlsx
+*.xlsx.bak*
+
+# One-off / superseded / exploratory scripts — kept locally, out of the repo
+scripts/fix_dups.py
+scripts/fix_gse239542.py
+scripts/pilot_pipeline.py
+scripts/build_test34_subset.py
+scripts/compare_xlsx_vs_h5ad.py
+scripts/hvg_saturation.py
+
 # Model checkpoints (top-level only — src/brain_organoid/models is source code)
 /models/
 *.pt
