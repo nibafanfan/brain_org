@@ -89,12 +89,29 @@ stopping, patience 10, never fired because it monitors ELBO, which KL keeps
 pulling down.)
 
 ### Integration outcome (why we don't chase epochs)
-100ep (batch 512, ~784k steps, 2.2 h) vs 15ep (batch 2048, ~29k steps, 7 min):
-batch mixing improved only **~10% relative**, **biology dropped ~7%**, net
-batch/bio ratio **1.82 → 1.91**. The residual batch structure is **structural,
-not an optimization gap**: `tech_sample` has 505 categories **confounded with real
-biology** (each dataset is its own protocol / age / region). Global kNN
-same-neighbor-fraction conflates batch with biology.
+Head-to-head, **same-dataset/same-batch neighbor fraction** (kNN mixing proxy;
+lower = better mixing for batch keys, higher = better conservation for biology):
+
+| key (n categories) | old (2048 / 15ep, ~29k steps) | new (512 / 100ep, ~784k steps) | random baseline | Δ |
+|---|---|---|---|---|
+| tech_sample (505) | 0.304 | 0.269 | 0.0054 | −12% |
+| bio_sample (501) | 0.305 | 0.270 | 0.0054 | −11% |
+| dataset_slug (113) | 0.464 | 0.418 | 0.017 | −10% |
+| organoid_type (33, biology) | 0.553 | 0.513 | 0.156 | −7% |
+
+**Biology/batch ratio** (integration quality): old 0.553/0.304 = **1.82** → new
+0.513/0.269 = **1.91** (~5% better). So **27× more compute (2.2 h vs 7 min) bought
+~10% relative batch-mixing gain while biology dropped ~7%** — the latent didn't
+restructure, everything just contracted slightly. Underfitting was a *minor*
+factor; the 7-min run was already near the achievable mixing for this setup.
+
+The residual batch structure is **structural, not an optimization gap**:
+`tech_sample` has 505 categories **confounded with real biology** (each dataset
+carries its own protocol / age / region), and the same-neighbor metric conflates
+the two. scVI can't (and shouldn't) erase "same dataset = partly same biology."
+**Keep the converged 100-epoch model** and move on; real levers for mixing are a
+coarser `batch_key`, scANVI, or per-cell-type iLISI/kBET — not more epochs.
+(An independent Codex methods review reached the same conclusion.)
 
 **Real levers (not epochs):** coarser `batch_key`, **scANVI** (semi-supervised
 with transferred labels), or **cell-type-stratified** iLISI/kBET. The definitive
@@ -173,7 +190,51 @@ Every *cortical* marker is near-zero — but this is **biology, not corruption**
 
 ---
 
-## 6. Known limitations / next steps
+## 6. Label transfer pilot (Braun 2023 → scANVI)
+
+`braun_label_transfer.py` pilot on a 200k-cell subsample, ~7.4 min end-to-end.
+**CellClass** via scANVI surgery on the scVI latent; **Region** via kNN.
+
+### CellClass (scANVI) — biologically sane
+| Class | % | |
+|---|---|---|
+| Radial glia | 44.7% | progenitors |
+| Neuron | 34.0% | |
+| Glioblast | 12.3% | glia |
+| Neuroblast | 7.1% | |
+| Neuronal IPC | 0.9% | |
+| Fibroblast | 0.8% | |
+| Immune / Vascular / Oligo / Erythrocyte | 0.0% | ⚠ see caveats |
+
+**~99% neural lineage** (radial glia + neuron + glioblast + neuroblast + IPC) —
+exactly what brain organoids should be. **Mean confidence 0.943; 89% of cells
+> 0.8.** Transfer is confident and plausible.
+
+### Region (kNN) — plausible, appropriately softer
+Telencephalon 31.6% + Forebrain 16.1% ≈ **48% forebrain** (cortical protocols are
+most common), Midbrain 20.7%, Diencephalon 15.1%, Medulla 12.1%. **Mean confidence
+0.550** — much lower than CellClass, as expected: organoid regional patterning is
+imprecise, so regional identity transfers noisily (honest, not broken).
+
+### Caveats to resolve at full scale
+1. **Immune & Vascular = 0.0%** — the key watch item. Benchmark Q2 asks whether
+   multi-lineage protocols add microglia/endothelium matching primary tissue.
+   Either these are rare types a 200k subsample missed, or the transfer can't
+   resolve them — only the full 4M-cell run will tell.
+2. **Validation crosstab was weak** — the atlas `cell_type` column is almost all
+   `unknown`, giving no signal. Before the full run, confirm the **finalized
+   per-cell annotations** (`cell_type_origin`, `organoid_type`, …,
+   `annotation_level`, `gsm`) are present/populated in `atlas_v5_full.h5ad` so
+   transfers can be cross-checked against real organoid labels.
+
+### Pre-full-run checklist
+- Confirm finalized annotation fields are populated (not `unknown`) for the
+  cross-check; the injection field-map and `annotation_level` semantics apply.
+- Full-atlas **rare-class audit** (immune/vascular/oligo presence).
+- Benchmark **stratified by `annotation_level`** (`gsm` vs `deposit`) so coarse
+  fallback cells don't bias results.
+
+## 7. Known limitations / next steps
 
 - **Tier-2 coverage:** 141 finalized GSMs not yet in the atlas (105 unbuilt
   accessions; 36 in pooled/unsplit deposits needing per-GSM raw splitting).

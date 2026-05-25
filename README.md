@@ -58,6 +58,11 @@ scVI integration.
   in all 118 deposits → no cross-deposit gene mis-alignment**. One outlier
   (`gse290048_pineal`) is biologically coherent pineal tissue, flagged as a
   watch-item.
+- **Label transfer (Braun 2023 → scANVI) pilot:** ~99% neural lineage (Radial glia
+  45%, Neuron 34%, Glioblast 12%, Neuroblast 7%), CellClass mean confidence 0.943;
+  Region softer (~48% forebrain, conf 0.55) as expected. Watch items: immune/
+  vascular at 0% in the 200k pilot (resolve at full scale), and the atlas
+  `cell_type` cross-check column is mostly `unknown`.
 
 The ~800 GB data tree and annotation workbooks are gitignored.
 
